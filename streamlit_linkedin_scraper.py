@@ -116,27 +116,26 @@ try:
         filtered_df = filtered_df[filtered_df['Skills'].apply(lambda x: any(skill in str(x) for skill in skill_filter))]
 
     if remove_duplicates and "Company" in filtered_df.columns and "Vacancy Title" in filtered_df.columns:
+        # Привести Company и Vacancy Title к строке и убрать пробелы для строгой фильтрации
+        filtered_df["Company"] = filtered_df["Company"].astype(str).str.strip()
+        filtered_df["Vacancy Title"] = filtered_df["Vacancy Title"].astype(str).str.strip()
         if dedup_priority == "First event (any stage)":
             filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
         elif dedup_priority == "Prefer TG message sent if exists":
             if "TG message sent" in filtered_df.columns:
-                # Привести к строке и сравнивать строго с 'yes'
-                filtered_df["_tg_sent_sort"] = filtered_df["TG message sent"].astype(str).str.strip().str.lower() == "yes"
-                filtered_df = (
-                    filtered_df.sort_values(
-                        by=["Company", "Vacancy Title", "_tg_sent_sort"],
-                        ascending=[True, True, False]
-                    )
-                    .drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
-                    .drop(columns=["_tg_sent_sort"])
-                )
+                filtered_df["TG message sent"] = filtered_df["TG message sent"].astype(str).str.strip().str.lower()
+                df_yes = filtered_df[filtered_df["TG message sent"] == "yes"].drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+                df_no = filtered_df[filtered_df["TG message sent"] != "yes"].drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+                pairs_yes = set(zip(df_yes["Company"], df_yes["Vacancy Title"]))
+                df_no = df_no[~df_no.set_index(["Company", "Vacancy Title"]).index.isin(pairs_yes)]
+                filtered_df = pd.concat([df_yes, df_no], ignore_index=True)
             else:
                 filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
 
     # --- LIVE ПРОГРЕСС ---
     st.sidebar.markdown("---")
     st.sidebar.header("Live-прогресс поиска")
-    total_jobs = len(df)
+    total_jobs = len(filtered_df)
     filtered_jobs = len(filtered_df)
     st.sidebar.metric("Всего вакансий", total_jobs)
     st.sidebar.metric("Вакансий после фильтров", filtered_jobs)
@@ -145,7 +144,7 @@ try:
     # --- Воронка поиска (Funnel) ---
     st.subheader("Воронка поиска (Funnel)")
     funnel_data = {
-        "Найдено": [len(df)],
+        "Найдено": [len(filtered_df)],
         "После фильтров": [len(filtered_df)],
         # Можно добавить этапы, если есть логи отправки в Telegram/Sheets
     }
@@ -169,16 +168,16 @@ try:
         st.info(f"Unable to load funnel from main sheet: {e}")
 
     # --- Filter main data for all analytics by Stage ---
-    filtered_df = df[df.get("Stage", "Passed filters") == "Passed filters"] if "Stage" in df.columns else df
+    filtered_df = filtered_df[filtered_df.get("Stage", "Passed filters") == "Passed filters"] if "Stage" in filtered_df.columns else filtered_df
 
     # --- Heatmap активности по времени ---
     st.subheader("Активность по времени (день/час)")
-    if 'Timestamp' in df.columns:
-        dt = pd.to_datetime(df['Timestamp'], errors='coerce')
+    if 'Timestamp' in filtered_df.columns:
+        dt = pd.to_datetime(filtered_df['Timestamp'], errors='coerce')
         if not dt.isnull().all():
-            df['weekday'] = dt.dt.day_name()
-            df['hour'] = dt.dt.hour
-            heatmap_time = pd.pivot_table(df, index='weekday', columns='hour', values='Vacancy Title', aggfunc='count', fill_value=0)
+            filtered_df['weekday'] = dt.dt.day_name()
+            filtered_df['hour'] = dt.dt.hour
+            heatmap_time = pd.pivot_table(filtered_df, index='weekday', columns='hour', values='Vacancy Title', aggfunc='count', fill_value=0)
             import seaborn as sns
             fig_time, ax_time = plt.subplots(figsize=(12, 4))
             sns.heatmap(heatmap_time, cmap='YlOrRd', ax=ax_time)
@@ -202,29 +201,29 @@ try:
     st.subheader("Статистика по фильтрам")
     filter_stats = {}
     for col in ['Relocation', 'Remote', 'Experience', 'Skills']:
-        if col in df.columns:
-            total = df[col].notnull().sum()
+        if col in filtered_df.columns:
+            total = filtered_df[col].notnull().sum()
             filtered = filtered_df[col].notnull().sum()
-            filter_stats[col] = [total-filtered, filtered]
+            filter_stats[col] = {'Всего': total, 'После фильтра': filtered}
     if filter_stats:
-        filter_stats_df = pd.DataFrame(filter_stats, index=['Отсеяно', 'Пропущено'])
+        filter_stats_df = pd.DataFrame(filter_stats).T
         st.bar_chart(filter_stats_df)
     else:
         st.info("Нет данных для статистики по фильтрам.")
 
     # --- Мониторинг ошибок ---
     st.subheader("Мониторинг ошибок")
-    if 'Error' in df.columns:
+    if 'Error' in filtered_df.columns:
         st.write("Последние ошибки:")
-        st.dataframe(df[['Timestamp', 'Error']].dropna().tail(10), hide_index=True)
-        st.write(f"Всего ошибок: {df['Error'].notnull().sum()}")
+        st.dataframe(filtered_df[['Timestamp', 'Error']].dropna().tail(10), hide_index=True)
+        st.write(f"Всего ошибок: {filtered_df['Error'].notnull().sum()}")
     else:
         st.info("Нет данных по ошибкам.")
 
     # --- География вакансий (если есть) ---
-    if 'Location' in df.columns:
+    if 'Location' in filtered_df.columns:
         st.subheader("География вакансий")
-        geo_counts = df['Location'].value_counts().head(20).reset_index().rename(columns={'index': 'Место', 'Location': 'Вакансий'})
+        geo_counts = filtered_df['Location'].value_counts().head(20).reset_index().rename(columns={'index': 'Место', 'Location': 'Вакансий'})
         st.dataframe(geo_counts, hide_index=True)
         # Можно добавить map, если есть координаты
 
@@ -249,8 +248,7 @@ try:
     else:
         st.info("Нет данных для построения pie chart по компаниям.")
 
-    # --- График по времени (количество вакансий по дням) ---
-    st.subheader("Вакансии по дням (Time Series)")
+    # --- График по дням ---
     if 'Timestamp' in filtered_df.columns:
         filtered_df['Date'] = pd.to_datetime(filtered_df['Timestamp'], errors='coerce').dt.date
         daily_counts = filtered_df.groupby('Date').size()
@@ -274,9 +272,8 @@ try:
         skill_matrix = pd.DataFrame(0, index=filtered_df['Company'].unique(), columns=most_common_skills)
         for _, row in filtered_df.iterrows():
             company = row['Company']
-            skills = [s.strip() for s in str(row.get('Skills', '')).split(",") if s.strip()]
-            for skill in most_common_skills:
-                if skill in skills:
+            for skill in [s.strip() for s in str(row['Skills']).split(",") if s.strip()]:
+                if skill in skill_matrix.columns:
                     skill_matrix.at[company, skill] += 1
         if not skill_matrix.empty and skill_matrix.values.sum() > 0:
             fig3, ax3 = plt.subplots(figsize=(10, max(3, len(skill_matrix)//2)))
