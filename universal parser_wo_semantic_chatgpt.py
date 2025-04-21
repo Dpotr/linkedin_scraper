@@ -60,6 +60,14 @@ NO_RELOCATION_REQUIREMENTS = [
 REMOTE_REQUIREMENTS = [
     "remote", "work from home", "fully remote", "telecommute", "telecommuting", "remote work", "remote position"
 ]
+REMOTE_PROHIBITED = [
+    "onsite only", "remote not considered", "remote work not allowed", "no remote work", "remote not possible",
+    "remote not available", "remote option not available", "remote is not possible", "remote work not considered",
+    "must be onsite", "on-site only", "requires onsite", "remote applicants not considered", "remote work prohibited",
+    "remote work is not permitted", "remote is not permitted", "remote not permitted", "remote not supported",
+    "remote applicants will not be considered", "must work onsite", "must be on-site", "remote is not an option",
+    "remote working is not possible", "no option for remote", "remote is not supported"
+]
 KEYWORDS_VISA = [
     "we provide relocation", "relocation assistance", "relocation support", "we sponsor visas",
     "visa sponsorship available", "work visa sponsorship", "relocation package", "we support relocation",
@@ -198,7 +206,7 @@ def create_bar_chart(results):
     if not results:
         return None
     df = pd.DataFrame(results)
-    criteria = ["Visa Sponsorship or Relocation", "Anaplan", "SAP APO", "Planning", "No Relocation Support", "Remote"]
+    criteria = ["Visa Sponsorship or Relocation", "Anaplan", "SAP APO", "Planning", "No Relocation Support", "Remote", "Remote Prohibited"]
     try:
         counts = {crit: df[crit].sum() if crit in df.columns else 0 for crit in criteria}
         plt.figure(figsize=(8, 5))
@@ -309,8 +317,9 @@ def parse_current_page(driver, wait, start_time, config):
         keywords_planning = config.get("keywords_planning") or KEYWORDS_PLANNING
         no_relocation_requirements = config.get("no_relocation_requirements") or NO_RELOCATION_REQUIREMENTS
         remote_requirements = config.get("remote_requirements") or REMOTE_REQUIREMENTS
+        remote_prohibited = config.get("remote_prohibited") or REMOTE_PROHIBITED
         all_keywords = config.get("all_keywords") or (
-            keywords_visa + keywords_anaplan + keywords_sap + keywords_planning + no_relocation_requirements + remote_requirements
+            keywords_visa + keywords_anaplan + keywords_sap + keywords_planning + no_relocation_requirements + remote_requirements + remote_prohibited
         )
 
         for i, job in enumerate(job_listings, start=1):
@@ -363,6 +372,12 @@ def parse_current_page(driver, wait, start_time, config):
                     job_url = job_url.split("?")[0]
 
                 # ДО ФИЛЬТРОВ: логируем просмотр вакансии
+                matched_keywords = []
+                for kw in (
+                    keywords_visa + keywords_anaplan + keywords_sap + keywords_planning + no_relocation_requirements + remote_requirements + remote_prohibited
+                ):
+                    if kw.lower() in desc_text.lower():
+                        matched_keywords.append(kw)
                 logs_buffer.append({
                     "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "Stage": "Viewed",
@@ -374,15 +389,18 @@ def parse_current_page(driver, wait, start_time, config):
                     "Planning": False,
                     "No Relocation Support": False,
                     "Remote": False,
+                    "Remote Prohibited": False,
                     "Already Applied": False,
                     "Job URL": job_url,
                     "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                     "Skills": "",
-                    "TG message sent": ""
+                    "TG message sent": "",
+                    "Matched key words": ", ".join(matched_keywords),
                 })
 
                 # Определяем флаги соответствия
                 remote_found = any(x in desc_text for x in remote_requirements)
+                remote_prohibited_found = any(x in desc_text for x in remote_prohibited)
                 visa_or_relocation = any(x in desc_text for x in keywords_visa)
                 anaplan_found = any(x in desc_text for x in keywords_anaplan)
                 sap_apo_found = any(x in desc_text for x in keywords_sap)
@@ -409,15 +427,17 @@ def parse_current_page(driver, wait, start_time, config):
                         "Planning": planning_found,
                         "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
                         "Remote": remote_found,
+                        "Remote Prohibited": remote_prohibited_found,
                         "Already Applied": already_applied,
                         "Job URL": job_url,
                         "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                         "Skills": ", ".join(top_skills),
-                        "TG message sent": ""
+                        "TG message sent": "",
+                        "Matched key words": ", ".join(matched_keywords),
                     })
                     continue
 
-                # Если не прошла по условиям (remote/visa/anaplan/sap/planning)
+                #!!!!!!!!!!!!!!!!!!!!!!!!!!!! Если не прошла по условиям (remote/visa/anaplan/sap/planning)
                 if not ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
                     logs_buffer.append({
                         "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -430,11 +450,13 @@ def parse_current_page(driver, wait, start_time, config):
                         "Planning": planning_found,
                         "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
                         "Remote": remote_found,
+                        "Remote Prohibited": remote_prohibited_found,
                         "Already Applied": already_applied,
                         "Job URL": job_url,
                         "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                         "Skills": ", ".join(top_skills),
-                        "TG message sent": ""
+                        "TG message sent": "",
+                        "Matched key words": ", ".join(matched_keywords),
                     })
                     continue
 
@@ -451,14 +473,21 @@ def parse_current_page(driver, wait, start_time, config):
                     "Planning": planning_found,
                     "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
                     "Remote": remote_found,
+                    "Remote Prohibited": remote_prohibited_found,
                     "Already Applied": already_applied,
                     "Job URL": job_url,
                     "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                     "Skills": ", ".join(top_skills),
-                    "TG message sent": ""
+                    "TG message sent": "",
+                    "Matched key words": ", ".join(matched_keywords),
                 })
 
-                matched_keywords = [kw for kw in all_keywords if kw in desc_text]
+                matched_keywords = []
+                for kw in (
+                    keywords_visa + keywords_anaplan + keywords_sap + keywords_planning + no_relocation_requirements + remote_requirements + remote_prohibited
+                ):
+                    if kw.lower() in desc_text.lower():
+                        matched_keywords.append(kw)
                 current_result = {
                     "Company": job_company_name,
                     "Vacancy Title": job_title,
@@ -468,10 +497,12 @@ def parse_current_page(driver, wait, start_time, config):
                     "Planning": planning_found,
                     "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
                     "Remote": remote_found,
+                    "Remote Prohibited": remote_prohibited_found,
                     "Already Applied": already_applied,
                     "Job URL": job_url,
                     "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                    "Skills": ", ".join(top_skills)
+                    "Skills": ", ".join(top_skills),
+                    "Matched key words": ", ".join(matched_keywords),
                 }
                 matching_jobs.append(current_result)
                 running_minutes = (time.perf_counter() - start_time) / 60
@@ -508,11 +539,13 @@ def parse_current_page(driver, wait, start_time, config):
                     "Planning": planning_found,
                     "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
                     "Remote": remote_found,
+                    "Remote Prohibited": remote_prohibited_found,
                     "Already Applied": already_applied,
                     "Job URL": job_url,
                     "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                     "Skills": ", ".join(top_skills),
-                    "TG message sent": "yes"
+                    "TG message sent": "yes",
+                    "Matched key words": ", ".join(matched_keywords),
                 })
                 results.append(current_result)
             except Exception as e:
@@ -533,120 +566,133 @@ def run_scraper(config):
     results = []
     total_vacancies_checked = 0
     start_time = time.perf_counter()
-
-    # Используем пользовательские ключевые слова, если они есть, иначе дефолтные
-    keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
-    keywords_anaplan = config.get("keywords_anaplan") or KEYWORDS_ANAPLAN
-    keywords_sap = config.get("keywords_sap") or KEYWORDS_SAP
-    keywords_planning = config.get("keywords_planning") or KEYWORDS_PLANNING
-    no_relocation_requirements = config.get("no_relocation_requirements") or NO_RELOCATION_REQUIREMENTS
-    remote_requirements = config.get("remote_requirements") or REMOTE_REQUIREMENTS
-    all_keywords = (
-        keywords_visa
-        + keywords_anaplan
-        + keywords_sap
-        + keywords_planning
-        + no_relocation_requirements
-        + remote_requirements
-    )
-    # Передаче all_keywords и остальные списки в parse_current_page через config
-    config["all_keywords"] = all_keywords
-    config["keywords_visa"] = keywords_visa
-    config["keywords_anaplan"] = keywords_anaplan
-    config["keywords_sap"] = keywords_sap
-    config["keywords_planning"] = keywords_planning
-    config["no_relocation_requirements"] = no_relocation_requirements
-    config["remote_requirements"] = remote_requirements
-
-    options = uc.ChromeOptions()
-    options.add_argument(f"--user-data-dir={config['chrome_profile_path']}")
-    # options.add_argument("--profile-directory=Default")
-    options.add_argument("--disable-webrtc")
-    options.add_argument("--disable-features=WebRtcHideLocalIpsWithMdns")
-    options.add_argument("--disable-udp")
-    options.add_argument("--log-level=3")
-    options.add_argument("--disable-logging")
-    options.add_argument("--v=0")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-
-    if config.get("chrome_binary_location"):
-        options.binary_location = config["chrome_binary_location"]
-
-    service = Service(config["chromedriver_path"])
-    try:
-        driver = uc.Chrome(options=options, service=service)
-    except Exception as e:
-        logging.error(f"Ошибка запуска браузера: {e}")
-        return
-
-    driver.get("https://www.linkedin.com/login")
-    logging.info("Ожидаем ручной вход в систему...")
-    try:
-        WebDriverWait(driver, 60).until(
-            lambda d: ("feed" in d.current_url or "linkedin.com/feed" in d.current_url)
+    repetitive_parsing = config.get("repetitive_parsing", False)
+    while True:
+        # Используем пользовательские ключевые слова, если они есть, иначе дефолтные
+        keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
+        keywords_anaplan = config.get("keywords_anaplan") or KEYWORDS_ANAPLAN
+        keywords_sap = config.get("keywords_sap") or KEYWORDS_SAP
+        keywords_planning = config.get("keywords_planning") or KEYWORDS_PLANNING
+        no_relocation_requirements = config.get("no_relocation_requirements") or NO_RELOCATION_REQUIREMENTS
+        remote_requirements = config.get("remote_requirements") or REMOTE_REQUIREMENTS
+        remote_prohibited = config.get("remote_prohibited") or REMOTE_PROHIBITED
+        all_keywords = (
+            keywords_visa
+            + keywords_anaplan
+            + keywords_sap
+            + keywords_planning
+            + no_relocation_requirements
+            + remote_requirements
+            + remote_prohibited
         )
-        logging.info("Вход выполнен успешно.")
-    except Exception as e:
-        logging.error("Ошибка при входе в систему. Проверьте логин вручную.")
-        driver.quit()
-        return
+        # Передаче all_keywords и остальные списки в parse_current_page через config
+        config["all_keywords"] = all_keywords
+        config["keywords_visa"] = keywords_visa
+        config["keywords_anaplan"] = keywords_anaplan
+        config["keywords_sap"] = keywords_sap
+        config["keywords_planning"] = keywords_planning
+        config["no_relocation_requirements"] = no_relocation_requirements
+        config["remote_requirements"] = remote_requirements
+        config["remote_prohibited"] = remote_prohibited
 
-    try:
-        direct_url = (
-            "https://www.linkedin.com/jobs/search/"
-            f"?keywords={config['keyword'].replace(' ', '%20')}"
-            f"&location={config['search_country'].replace(' ', '%20')}"
-        )
-        driver.get(direct_url)
-        time.sleep(3)
-        wait = WebDriverWait(driver, 30)
+        options = uc.ChromeOptions()
+        options.add_argument(f"--user-data-dir={config['chrome_profile_path']}")
+        # options.add_argument("--profile-directory=Default")
+        options.add_argument("--disable-webrtc")
+        options.add_argument("--disable-features=WebRtcHideLocalIpsWithMdns")
+        options.add_argument("--disable-udp")
+        options.add_argument("--log-level=3")
+        options.add_argument("--disable-logging")
+        options.add_argument("--v=0")
+        options.add_argument("--disable-blink-features=AutomationControlled")
 
-        current_page = 1
-        while True:
-            logging.info(f"=== Обработка страницы {current_page} ===")
-            parse_current_page(driver, wait, start_time, config)
+        if config.get("chrome_binary_location"):
+            options.binary_location = config["chrome_binary_location"]
+
+        service = Service(config["chromedriver_path"])
+        try:
+            driver = uc.Chrome(options=options, service=service)
+        except Exception as e:
+            logging.error(f"Ошибка запуска браузера: {e}")
+            return
+
+        driver.get("https://www.linkedin.com/login")
+        logging.info("Ожидаем ручной вход в систему...")
+        try:
+            WebDriverWait(driver, 60).until(
+                lambda d: ("feed" in d.current_url or "linkedin.com/feed" in d.current_url)
+            )
+            logging.info("Вход выполнен успешно.")
+        except Exception as e:
+            logging.error("Ошибка при входе в систему. Проверьте логин вручную.")
+            driver.quit()
+            return
+
+        try:
+            direct_url = (
+                "https://www.linkedin.com/jobs/search/"
+                f"?keywords={config['keyword'].replace(' ', '%20')}"
+                f"&location={config['search_country'].replace(' ', '%20')}"
+            )
+            driver.get(direct_url)
+            time.sleep(3)
+            wait = WebDriverWait(driver, 30)
+
+            current_page = 1
+            while True:
+                logging.info(f"=== Обработка страницы {current_page} ===")
+                parse_current_page(driver, wait, start_time, config)
+                elapsed_time = round(time.perf_counter() - start_time, 2)
+                save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
+
+                next_page_number = current_page + 1
+                next_button_xpath = f"//button[@aria-label='Page {next_page_number}']"
+                next_buttons = driver.find_elements(By.XPATH, next_button_xpath)
+                if not next_buttons:
+                    logging.info(f"Страница {next_page_number} не найдена. Пагинация завершена.")
+                    break
+
+                next_buttons[0].click()
+                current_page += 1
+                time.sleep(3)
+
             elapsed_time = round(time.perf_counter() - start_time, 2)
             save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
-
-            next_page_number = current_page + 1
-            next_button_xpath = f"//button[@aria-label='Page {next_page_number}']"
-            next_buttons = driver.find_elements(By.XPATH, next_button_xpath)
-            if not next_buttons:
-                logging.info(f"Страница {next_page_number} не найдена. Пагинация завершена.")
-                break
-
-            next_buttons[0].click()
-            current_page += 1
-            time.sleep(3)
-
-        elapsed_time = round(time.perf_counter() - start_time, 2)
-        save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
-        logging.info("Пагинация завершена. Финальные результаты сохранены.")
-    except Exception as e:
-        logging.error(f"Глобальная ошибка при поиске вакансий: {e}")
-        elapsed_time = round(time.perf_counter() - start_time, 2)
-        results.append({
-            "Company": config["keyword"],
-            "Vacancy Title": "",
-            "Visa Sponsorship or Relocation": False,
-            "Anaplan": False,
-            "SAP APO": False,
-            "Planning": False,
-            "No Relocation Support": False,
-            "Remote": False,
-            "Already Applied": False,
-            "Job URL": None,
-            "Elapsed Time (s)": elapsed_time,
-            "Skills": "",
-            "TG message sent": ""
-        })
-        save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
-    finally:
-        driver.quit()
-        logging.info("Браузер закрыт.")
-        if config.get("shutdown_on_finish"):
-            logging.info("Скрипт завершён. Выключение компьютера через 30 секунд.")
-            os.system("shutdown /s /t 30")
+            logging.info("Пагинация завершена. Финальные результаты сохранены.")
+        except Exception as e:
+            logging.error(f"Глобальная ошибка при поиске вакансий: {e}")
+            elapsed_time = round(time.perf_counter() - start_time, 2)
+            results.append({
+                "Company": config["keyword"],
+                "Vacancy Title": "",
+                "Visa Sponsorship or Relocation": False,
+                "Anaplan": False,
+                "SAP APO": False,
+                "Planning": False,
+                "No Relocation Support": False,
+                "Remote": False,
+                "Remote Prohibited": False,
+                "Already Applied": False,
+                "Job URL": None,
+                "Elapsed Time (s)": elapsed_time,
+                "Skills": "",
+                "TG message sent": "",
+                "Matched key words": "",
+            })
+            save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
+        finally:
+            driver.quit()
+            logging.info("Браузер закрыт.")
+            if config.get("shutdown_on_finish"):
+                logging.info("Скрипт завершён. Выключение компьютера через 30 секунд.")
+                os.system("shutdown /s /t 30")
+        if not repetitive_parsing:
+            break
+        logging.info("Repetitive parsing enabled: restarting from first page...")
+        # Здесь можно добавить сброс состояния, если нужно
+        # Например, сбросить текущую страницу на 1, обновить драйвер и т.д.
+        # В зависимости от вашей логики, возможно потребуется реализовать функцию reset_to_first_page()
+        # reset_to_first_page(driver)
 
 def start_scraper_thread(config):
     thread = threading.Thread(target=run_scraper, args=(config,))
@@ -668,6 +714,7 @@ def create_gui():
     chrome_profile_path_var = tk.StringVar(value=DEFAULT_CHROME_PROFILE_PATH)
     chrome_binary_location_var = tk.StringVar(value=DEFAULT_CHROME_BINARY_LOCATION)
     shutdown_var = tk.BooleanVar(value=False)
+    repetitive_parsing_var = tk.BooleanVar(value=False)
 
     keywords_visa_var = tk.StringVar(value=", ".join(KEYWORDS_VISA))
     keywords_anaplan_var = tk.StringVar(value=", ".join(KEYWORDS_ANAPLAN))
@@ -675,6 +722,7 @@ def create_gui():
     keywords_planning_var = tk.StringVar(value=", ".join(KEYWORDS_PLANNING))
     no_relocation_requirements_var = tk.StringVar(value=", ".join(NO_RELOCATION_REQUIREMENTS))
     remote_requirements_var = tk.StringVar(value=", ".join(REMOTE_REQUIREMENTS))
+    remote_prohibited_var = tk.StringVar(value=", ".join(REMOTE_PROHIBITED))
 
     google_sheets_url_var = tk.StringVar(value="https://docs.google.com/spreadsheets/d/173Zb-CkHxamDlQ3q7aFD-1Ay3nk6W7hrEq2aD6y4VJ4/edit?usp=sharing")
     google_sheets_credentials_var = tk.StringVar(value="C:/Users/potre/OneDrive/LinkedIn_Automation/google_sheets_credentials.json")
@@ -709,6 +757,8 @@ def create_gui():
     )).grid(row=7, column=2, padx=5, pady=5)
     shutdown_checkbox = tk.Checkbutton(root, text="Выключить компьютер после завершения работы скрипта", variable=shutdown_var)
     shutdown_checkbox.grid(row=8, column=0, columnspan=3, pady=5)
+    repetitive_checkbox = tk.Checkbutton(root, text="Repetitive parsing (бесконечный парсинг)", variable=repetitive_parsing_var)
+    repetitive_checkbox.grid(row=9, column=0, columnspan=3, pady=5)
 
     def on_start():
         # Получаем пользовательские ключевые слова и разбиваем их по запятым
@@ -728,8 +778,10 @@ def create_gui():
             "keywords_planning": [kw.strip() for kw in keywords_planning_var.get().split(",") if kw.strip()],
             "no_relocation_requirements": [kw.strip() for kw in no_relocation_requirements_var.get().split(",") if kw.strip()],
             "remote_requirements": [kw.strip() for kw in remote_requirements_var.get().split(",") if kw.strip()],
+            "remote_prohibited": [kw.strip() for kw in remote_prohibited_var.get().split(",") if kw.strip()],
             "google_sheets_url": google_sheets_url_var.get(),
-            "google_sheets_credentials": google_sheets_credentials_var.get()
+            "google_sheets_credentials": google_sheets_credentials_var.get(),
+            "repetitive_parsing": repetitive_parsing_var.get()
         }
         if not config["output_file_path"]:
             messagebox.showerror("Ошибка", "Укажите путь для сохранения Excel файла.")

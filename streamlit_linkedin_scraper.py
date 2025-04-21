@@ -66,38 +66,21 @@ try:
     # --- Фильтры для интерактивной аналитики с кнопками Select/Deselect All ---
     st.sidebar.header("Фильтры для аналитики")
     all_companies = sorted(df['Company'].dropna().unique())
-    all_vacancies = sorted(df['Vacancy Title'].dropna().unique())
     all_skills = sorted(set(itertools.chain.from_iterable([s.strip() for s in str(skills).split(",") if s.strip()] for skills in df['Skills'].dropna())))
 
-    # Кнопки Select/Deselect All для компаний
-    col1, col2 = st.sidebar.columns([1,1])
-    if 'company_filter' not in st.session_state:
-        st.session_state['company_filter'] = all_companies
-    if col1.button("Select All Companies"):
-        st.session_state['company_filter'] = all_companies
-    if col2.button("Deselect All Companies"):
-        st.session_state['company_filter'] = []
-    company_filter = st.sidebar.multiselect("Фильтр по компаниям", options=all_companies, default=st.session_state['company_filter'], key='company_filter')
+    # Фильтр по компаниям (selectbox)
+    company_filter = st.sidebar.selectbox("Фильтр по компаниям", options=["Все компании"] + all_companies, index=0, key='company_filter_select')
+    if company_filter == "Все компании":
+        selected_companies = all_companies
+    else:
+        selected_companies = [company_filter]
 
-    # Кнопки Select/Deselect All для вакансий
-    col3, col4 = st.sidebar.columns([1,1])
-    if 'vacancy_filter' not in st.session_state:
-        st.session_state['vacancy_filter'] = all_vacancies
-    if col3.button("Select All Vacancies"):
-        st.session_state['vacancy_filter'] = all_vacancies
-    if col4.button("Deselect All Vacancies"):
-        st.session_state['vacancy_filter'] = []
-    vacancy_filter = st.sidebar.multiselect("Фильтр по вакансиям", options=all_vacancies, default=st.session_state['vacancy_filter'], key='vacancy_filter')
-
-    # Кнопки Select/Deselect All для навыков
-    col5, col6 = st.sidebar.columns([1,1])
-    if 'skill_filter' not in st.session_state:
-        st.session_state['skill_filter'] = []
-    if col5.button("Select All Skills"):
-        st.session_state['skill_filter'] = all_skills
-    if col6.button("Deselect All Skills"):
-        st.session_state['skill_filter'] = []
-    skill_filter = st.sidebar.multiselect("Фильтр по навыкам (Skills)", options=all_skills, default=st.session_state['skill_filter'], key='skill_filter')
+    # Фильтр по навыкам (selectbox)
+    skill_filter = st.sidebar.selectbox("Фильтр по навыкам (Skills)", options=["Все навыки"] + all_skills, index=0, key='skill_filter_select')
+    if skill_filter == "Все навыки":
+        selected_skills = all_skills
+    else:
+        selected_skills = [skill_filter]
 
     # --- Галочка: удалять дубликаты вакансий ---
     remove_duplicates = st.sidebar.checkbox("Remove vacancies duplicates (by Company + Vacancy Title)", value=True)
@@ -105,15 +88,15 @@ try:
     if remove_duplicates:
         dedup_priority = st.sidebar.selectbox(
             "If duplicates: which to keep?",
-            ["First event (any stage)", "Prefer TG message sent if exists"]
+            ["First event (any stage)", "Prefer TG message sent if exists"],
+            index=1
         )
 
     filtered_df = df[
-        df['Company'].isin(company_filter)
-        & df['Vacancy Title'].isin(vacancy_filter)
+        df['Company'].isin(selected_companies)
     ]
-    if skill_filter:
-        filtered_df = filtered_df[filtered_df['Skills'].apply(lambda x: any(skill in str(x) for skill in skill_filter))]
+    if selected_skills:
+        filtered_df = filtered_df[filtered_df['Skills'].apply(lambda x: any(skill in str(x) for skill in selected_skills))]
 
     if remove_duplicates and "Company" in filtered_df.columns and "Vacancy Title" in filtered_df.columns:
         # Привести Company и Vacancy Title к строке и убрать пробелы для строгой фильтрации
@@ -141,31 +124,115 @@ try:
     st.sidebar.metric("Вакансий после фильтров", filtered_jobs)
     st.sidebar.progress(filtered_jobs / total_jobs if total_jobs else 0)
 
-    # --- Воронка поиска (Funnel) ---
-    st.subheader("Воронка поиска (Funnel)")
-    funnel_data = {
-        "Найдено": [len(filtered_df)],
-        "После фильтров": [len(filtered_df)],
-        # Можно добавить этапы, если есть логи отправки в Telegram/Sheets
-    }
-    funnel_df = pd.DataFrame(funnel_data)
-    st.bar_chart(funnel_df.T)
-
     # --- FUNNEL: REAL PROGRESS FROM MAIN SHEET ---
-    import gspread
     st.subheader("Search Funnel (All Stages)")
     funnel_counts = {}
     try:
-        gc = gspread.service_account(filename=st.secrets["google_sheets_credentials"])
-        sh = gc.open_by_url(st.secrets["google_sheets_url"])
+        import gspread
+        import matplotlib.pyplot as plt
+        gc = gspread.service_account(filename=GOOGLE_SHEETS_CREDENTIALS)
+        sh = gc.open_by_url(GOOGLE_SHEETS_URL)
         ws = sh.sheet1
         log_df = pd.DataFrame(ws.get_all_records())
-        for stage in ["Viewed", "Filtered (already applied)", "Filtered (criteria)", "Passed filters"]:
+        stages = [
+            "Viewed",
+            "Filtered (criteria)",
+            "Passed filters",
+            "TG message sent",
+            "Filtered (already applied)"
+        ]
+        for stage in stages:
             funnel_counts[stage] = (log_df["Stage"] == stage).sum()
-        funnel_df = pd.DataFrame(list(funnel_counts.items()), columns=["Stage", "Count"])
-        st.bar_chart(funnel_df.set_index("Stage"))
+        percent_stages = ["Viewed", "Filtered (criteria)", "Passed filters", "TG message sent"]
+        values = [funnel_counts[stage] for stage in percent_stages]
+        labels = []
+        prev = None
+        for i, stage in enumerate(percent_stages):
+            val = values[i]
+            if prev is not None and prev > 0:
+                percent = val / prev * 100
+                labels.append(f"{stage} ({val}, {percent:.1f}%)")
+            else:
+                labels.append(f"{stage} ({val})")
+            prev = val
+        if funnel_counts["Filtered (already applied)"] > 0:
+            labels.append(f"Filtered (already applied) ({funnel_counts['Filtered (already applied)']})")
+            values.append(funnel_counts["Filtered (already applied)"])
+        fig, ax = plt.subplots(figsize=(8, 5))
+        bars = ax.barh(range(len(values)), values, color=plt.cm.viridis([i / len(values) for i in range(len(values))]))
+        ax.set_yticks(range(len(labels)))
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlabel("Количество")
+        ax.set_title("Воронка по этапам")
+        for i, bar in enumerate(bars):
+            ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height()/2, str(values[i]), va='center')
+        st.pyplot(fig)
     except Exception as e:
         st.info(f"Unable to load funnel from main sheet: {e}")
+
+    # --- BAR CHART: Совпадения по критериям поиска ---
+    st.subheader("Совпадения по критериям поиска")
+    criteria_columns = [
+        "Visa Sponsorship or Relocation",
+        "Anaplan",
+        "SAP APO",
+        "Planning",
+        "No Relocation Support",
+        "Remote",
+        "Remote Prohibited",
+        "Already Applied"
+    ]
+    present_criteria = [col for col in criteria_columns if col in log_df.columns]
+    if present_criteria:
+        matches = {col: (log_df[col].astype(str).str.upper() == "TRUE").sum() for col in present_criteria}
+        import matplotlib.pyplot as plt
+        fig_crit, ax_crit = plt.subplots(figsize=(8, 4))
+        ax_crit.bar(matches.keys(), matches.values(), color=plt.cm.Paired.colors)
+        ax_crit.set_ylabel("Количество совпадений")
+        ax_crit.set_xlabel("Критерии поиска")
+        ax_crit.set_title("Вакансии, соответствующие критериям поиска")
+        ax_crit.set_xticklabels(matches.keys(), rotation=30, ha='right')
+        for i, v in enumerate(matches.values()):
+            ax_crit.text(i, v + max(matches.values()) * 0.01, str(v), ha='center', va='bottom')
+        st.pyplot(fig_crit)
+    else:
+        st.info("В Google Sheets нет колонок с критериями поиска для построения графика.")
+
+    # --- TAG CLOUD: matched key words ---
+    st.subheader("Облако тегов: совпавшие ключевые слова (Matched key words)")
+    matched_keywords_col = None
+    for col in log_df.columns:
+        if col.lower().replace('_', ' ').startswith('matched key'):
+            matched_keywords_col = col
+            break
+    if matched_keywords_col:
+        import itertools
+        from collections import Counter
+        all_keywords = list(itertools.chain.from_iterable(
+            [s.strip() for s in str(keywords).split(",") if s.strip()] for keywords in log_df[matched_keywords_col].dropna()
+        ))
+        keyword_counts = Counter(all_keywords)
+        if keyword_counts:
+            from wordcloud import WordCloud
+            fig_kw, ax_kw = plt.subplots(figsize=(12, 5))
+            wc_kw = WordCloud(width=900, height=400, background_color='white', colormap='plasma',
+                              max_words=100, prefer_horizontal=1.0, collocations=False).generate_from_frequencies(keyword_counts)
+            ax_kw.imshow(wc_kw, interpolation='bilinear')
+            ax_kw.axis('off')
+            st.pyplot(fig_kw)
+        else:
+            st.info("Нет данных для построения облака совпавших ключевых слов.")
+    else:
+        st.info("В Google Sheets нет колонки с совпавшими ключевыми словами для облака тегов.")
+
+    # --- BAR CHART: Remote Prohibited ---
+    st.subheader("Вакансии с запретом удалёнки (Remote Prohibited)")
+    if 'Remote Prohibited' in log_df.columns:
+        st.write(f"Всего вакансий с запретом на удалёнку: {(log_df['Remote Prohibited']==True).sum()}")
+        st.bar_chart(log_df['Remote Prohibited'].value_counts())
+    else:
+        st.info("Нет данных по запрету удалёнки.")
 
     # --- Filter main data for all analytics by Stage ---
     filtered_df = filtered_df[filtered_df.get("Stage", "Passed filters") == "Passed filters"] if "Stage" in filtered_df.columns else filtered_df
@@ -190,81 +257,15 @@ try:
 
     # --- Топ компаний и вакансий ---
     st.subheader("Топ компаний и вакансий")
-    if 'Company' in filtered_df.columns:
-        st.write("**Топ-10 компаний:**")
-        st.dataframe(filtered_df['Company'].value_counts().head(10).reset_index().rename(columns={'index': 'Компания', 'Company': 'Вакансий'}), hide_index=True)
     if 'Vacancy Title' in filtered_df.columns:
         st.write("**Топ-10 вакансий:**")
         st.dataframe(filtered_df['Vacancy Title'].value_counts().head(10).reset_index().rename(columns={'index': 'Вакансия', 'Vacancy Title': 'Частота'}), hide_index=True)
-
-    # --- Отсеивание по фильтрам ---
-    st.subheader("Статистика по фильтрам")
-    filter_stats = {}
-    for col in ['Relocation', 'Remote', 'Experience', 'Skills']:
-        if col in filtered_df.columns:
-            total = filtered_df[col].notnull().sum()
-            filtered = filtered_df[col].notnull().sum()
-            filter_stats[col] = {'Всего': total, 'После фильтра': filtered}
-    if filter_stats:
-        filter_stats_df = pd.DataFrame(filter_stats).T
-        st.bar_chart(filter_stats_df)
-    else:
-        st.info("Нет данных для статистики по фильтрам.")
-
-    # --- Мониторинг ошибок ---
-    st.subheader("Мониторинг ошибок")
-    if 'Error' in filtered_df.columns:
-        st.write("Последние ошибки:")
-        st.dataframe(filtered_df[['Timestamp', 'Error']].dropna().tail(10), hide_index=True)
-        st.write(f"Всего ошибок: {filtered_df['Error'].notnull().sum()}")
-    else:
-        st.info("Нет данных по ошибкам.")
-
-    # --- География вакансий (если есть) ---
-    if 'Location' in filtered_df.columns:
-        st.subheader("География вакансий")
-        geo_counts = filtered_df['Location'].value_counts().head(20).reset_index().rename(columns={'index': 'Место', 'Location': 'Вакансий'})
-        st.dataframe(geo_counts, hide_index=True)
-        # Можно добавить map, если есть координаты
-
-    # --- Сравнение с предыдущими периодами ---
-    st.subheader("Динамика по сравнению с прошлым периодом")
-    if 'Date' in filtered_df.columns:
-        last_week = filtered_df[filtered_df['Date'] >= (pd.Timestamp.now().date() - pd.Timedelta(days=7))]
-        prev_week = filtered_df[(filtered_df['Date'] < (pd.Timestamp.now().date() - pd.Timedelta(days=7))) & (filtered_df['Date'] >= (pd.Timestamp.now().date() - pd.Timedelta(days=14)))]
-        st.metric("Вакансий за последнюю неделю", len(last_week), delta=len(last_week)-len(prev_week))
-
-    # --- User-friendly таблица ---
-    st.dataframe(filtered_df, use_container_width=True, height=420, hide_index=True)
-
-    # --- Pie chart по компаниям ---
-    if 'Company' in filtered_df.columns and not filtered_df['Company'].isnull().all():
-        company_counts = filtered_df['Company'].value_counts()
-        fig1, ax1 = plt.subplots()
-        ax1.pie(company_counts, labels=company_counts.index, autopct='%1.1f%%', startangle=90)
-        ax1.axis('equal')
-        st.subheader("Распределение вакансий по компаниям")
-        st.pyplot(fig1)
-    else:
-        st.info("Нет данных для построения pie chart по компаниям.")
-
-    # --- График по дням ---
-    if 'Timestamp' in filtered_df.columns:
-        filtered_df['Date'] = pd.to_datetime(filtered_df['Timestamp'], errors='coerce').dt.date
-        daily_counts = filtered_df.groupby('Date').size()
-        if not daily_counts.empty:
-            st.line_chart(daily_counts)
-        else:
-            st.info("Нет данных для построения графика по дням.")
-    else:
-        st.info("Нет данных для построения графика по дням.")
 
     # --- Heatmap: топ навыков по компаниям (skills) ---
     st.subheader("Heatmap: топ навыков по компаниям (skills)")
     if 'Skills' in filtered_df.columns and 'Company' in filtered_df.columns:
         from collections import Counter
         import itertools
-        # Собираем все skills (разделены запятыми)
         all_skills = list(itertools.chain.from_iterable(
             [s.strip() for s in str(skills).split(",") if s.strip()] for skills in filtered_df['Skills'].dropna()
         ))
@@ -305,5 +306,20 @@ try:
             st.info("Нет данных для построения облака навыков.")
     else:
         st.info("Нет данных для построения облака навыков.")
+
+    # --- User-friendly таблица ---
+    st.dataframe(filtered_df, use_container_width=True, height=420, hide_index=True)
+
+    # --- График по дням ---
+    if 'Timestamp' in filtered_df.columns:
+        filtered_df['Date'] = pd.to_datetime(filtered_df['Timestamp'], errors='coerce').dt.date
+        daily_counts = filtered_df.groupby('Date').size()
+        if not daily_counts.empty:
+            st.line_chart(daily_counts)
+        else:
+            st.info("Нет данных для построения графика по дням.")
+    else:
+        st.info("Нет данных для построения графика по дням.")
+
 except Exception as e:
     st.error(f"Ошибка при чтении Google Sheets: {e}")
