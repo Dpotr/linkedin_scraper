@@ -1,0 +1,4 @@
+# Ignore sensitive config files
+
+tg_config.json
+google_sheets_credentials.json
