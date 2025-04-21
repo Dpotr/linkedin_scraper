@@ -247,6 +247,27 @@ def log_parser_event_to_sheets(event_dict, credentials_path, sheet_url, log_shee
     except Exception as e:
         logging.error(f"Error logging event to Google Sheets (main sheet): {e}")
 
+# === Batch logging to Google Sheets ===
+def batch_log_parser_events_to_sheets(events, credentials_path, sheet_url):
+    import gspread
+    if not events:
+        return
+    try:
+        gc = gspread.service_account(filename=credentials_path)
+        sh = gc.open_by_url(sheet_url)
+        worksheet = sh.sheet1
+        headers = worksheet.row_values(1)
+        # Add any missing columns from events
+        for event_dict in events:
+            for col in event_dict.keys():
+                if col not in headers:
+                    worksheet.update_cell(1, len(headers)+1, col)
+                    headers.append(col)
+        rows = [[event_dict.get(col, "") for col in headers] for event_dict in events]
+        worksheet.append_rows(rows, value_input_option='USER_ENTERED')
+    except Exception as e:
+        logging.error(f"Error batch logging events to Google Sheets: {e}")
+
 # ================================
 # Функция прокрутки
 # ================================
@@ -274,13 +295,13 @@ def scroll_until_loaded(driver, pause_time=1, max_consecutive=3):
 # ================================
 def parse_current_page(driver, wait, start_time, config):
     global results, total_vacancies_checked
+    logs_buffer = []
+    matching_jobs = []
     try:
         scroll_until_loaded(driver, pause_time=1, max_consecutive=3)
         job_listings = driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable")
         logging.info(f"Найдено вакансий на странице: {len(job_listings)}")
         total_vacancies_checked += len(job_listings)
-        matching_jobs = []
-
         # Используем пользовательские ключевые слова
         keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
         keywords_anaplan = config.get("keywords_anaplan") or KEYWORDS_ANAPLAN
@@ -342,24 +363,23 @@ def parse_current_page(driver, wait, start_time, config):
                     job_url = job_url.split("?")[0]
 
                 # ДО ФИЛЬТРОВ: логируем просмотр вакансии
-                if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-                    log_parser_event_to_sheets({
-                        "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "Stage": "Viewed",
-                        "Company": job_company_name,
-                        "Vacancy Title": job_title,
-                        "Visa Sponsorship or Relocation": False,
-                        "Anaplan": False,
-                        "SAP APO": False,
-                        "Planning": False,
-                        "No Relocation Support": False,
-                        "Remote": False,
-                        "Already Applied": False,
-                        "Job URL": job_url,
-                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                        "Skills": "",
-                        "TG message sent": ""
-                    }, config["google_sheets_credentials"], config["google_sheets_url"])
+                logs_buffer.append({
+                    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "Stage": "Viewed",
+                    "Company": job_company_name,
+                    "Vacancy Title": job_title,
+                    "Visa Sponsorship or Relocation": False,
+                    "Anaplan": False,
+                    "SAP APO": False,
+                    "Planning": False,
+                    "No Relocation Support": False,
+                    "Remote": False,
+                    "Already Applied": False,
+                    "Job URL": job_url,
+                    "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                    "Skills": "",
+                    "TG message sent": ""
+                })
 
                 # Определяем флаги соответствия
                 remote_found = any(x in desc_text for x in remote_requirements)
@@ -378,54 +398,9 @@ def parse_current_page(driver, wait, start_time, config):
 
                 # ФИЛЬТРЫ: если вакансия отсеяна
                 if already_applied:
-                    if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-                        log_parser_event_to_sheets({
-                            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                            "Stage": "Filtered (already applied)",
-                            "Company": job_company_name,
-                            "Vacancy Title": job_title,
-                            "Visa Sponsorship or Relocation": visa_or_relocation,
-                            "Anaplan": anaplan_found,
-                            "SAP APO": sap_apo_found,
-                            "Planning": planning_found,
-                            "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
-                            "Remote": remote_found,
-                            "Already Applied": already_applied,
-                            "Job URL": job_url,
-                            "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                            "Skills": ", ".join(top_skills),
-                            "TG message sent": ""
-                        }, config["google_sheets_credentials"], config["google_sheets_url"])
-                    continue
-
-                # Если не прошла по условиям (remote/visa/anaplan/sap/planning)
-                if not ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
-                    if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-                        log_parser_event_to_sheets({
-                            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                            "Stage": "Filtered (criteria)",
-                            "Company": job_company_name,
-                            "Vacancy Title": job_title,
-                            "Visa Sponsorship or Relocation": visa_or_relocation,
-                            "Anaplan": anaplan_found,
-                            "SAP APO": sap_apo_found,
-                            "Planning": planning_found,
-                            "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
-                            "Remote": remote_found,
-                            "Already Applied": already_applied,
-                            "Job URL": job_url,
-                            "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                            "Skills": ", ".join(top_skills),
-                            "TG message sent": ""
-                        }, config["google_sheets_credentials"], config["google_sheets_url"])
-                    continue
-
-                # ПРОШЛА ФИЛЬТРЫ: логируем
-                tg_sent = False
-                if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-                    log_parser_event_to_sheets({
+                    logs_buffer.append({
                         "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "Stage": "Passed filters",
+                        "Stage": "Filtered (already applied)",
                         "Company": job_company_name,
                         "Vacancy Title": job_title,
                         "Visa Sponsorship or Relocation": visa_or_relocation,
@@ -439,7 +414,49 @@ def parse_current_page(driver, wait, start_time, config):
                         "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                         "Skills": ", ".join(top_skills),
                         "TG message sent": ""
-                    }, config["google_sheets_credentials"], config["google_sheets_url"])
+                    })
+                    continue
+
+                # Если не прошла по условиям (remote/visa/anaplan/sap/planning)
+                if not ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
+                    logs_buffer.append({
+                        "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Stage": "Filtered (criteria)",
+                        "Company": job_company_name,
+                        "Vacancy Title": job_title,
+                        "Visa Sponsorship or Relocation": visa_or_relocation,
+                        "Anaplan": anaplan_found,
+                        "SAP APO": sap_apo_found,
+                        "Planning": planning_found,
+                        "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                        "Remote": remote_found,
+                        "Already Applied": already_applied,
+                        "Job URL": job_url,
+                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                        "Skills": ", ".join(top_skills),
+                        "TG message sent": ""
+                    })
+                    continue
+
+                # ПРОШЛА ФИЛЬТРЫ: логируем
+                tg_sent = False
+                logs_buffer.append({
+                    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "Stage": "Passed filters",
+                    "Company": job_company_name,
+                    "Vacancy Title": job_title,
+                    "Visa Sponsorship or Relocation": visa_or_relocation,
+                    "Anaplan": anaplan_found,
+                    "SAP APO": sap_apo_found,
+                    "Planning": planning_found,
+                    "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                    "Remote": remote_found,
+                    "Already Applied": already_applied,
+                    "Job URL": job_url,
+                    "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                    "Skills": ", ".join(top_skills),
+                    "TG message sent": ""
+                })
 
                 matched_keywords = [kw for kw in all_keywords if kw in desc_text]
                 current_result = {
@@ -480,50 +497,31 @@ def parse_current_page(driver, wait, start_time, config):
                 send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, images=images)
                 tg_sent = True
                 # Update log with TG message sent
-                if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-                    log_parser_event_to_sheets({
-                        "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "Stage": "Passed filters",
-                        "Company": job_company_name,
-                        "Vacancy Title": job_title,
-                        "Visa Sponsorship or Relocation": visa_or_relocation,
-                        "Anaplan": anaplan_found,
-                        "SAP APO": sap_apo_found,
-                        "Planning": planning_found,
-                        "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
-                        "Remote": remote_found,
-                        "Already Applied": already_applied,
-                        "Job URL": job_url,
-                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                        "Skills": ", ".join(top_skills),
-                        "TG message sent": "yes"
-                    }, config["google_sheets_credentials"], config["google_sheets_url"])
-
+                logs_buffer.append({
+                    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "Stage": "Passed filters",
+                    "Company": job_company_name,
+                    "Vacancy Title": job_title,
+                    "Visa Sponsorship or Relocation": visa_or_relocation,
+                    "Anaplan": anaplan_found,
+                    "SAP APO": sap_apo_found,
+                    "Planning": planning_found,
+                    "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                    "Remote": remote_found,
+                    "Already Applied": already_applied,
+                    "Job URL": job_url,
+                    "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                    "Skills": ", ".join(top_skills),
+                    "TG message sent": "yes"
+                })
                 results.append(current_result)
             except Exception as e:
                 logging.error(f"Ошибка при обработке вакансии №{i}: {e}")
                 continue
 
-        # --- Google Sheets: запись результатов ---
+        # --- Google Sheets: запись результатов (batch) ---
         if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-            for job in matching_jobs:
-                row = [
-                    time.strftime("%Y-%m-%d %H:%M:%S"),
-                    job.get("Company", ""),
-                    job.get("Vacancy Title", ""),
-                    job.get("Visa Sponsorship or Relocation", False),
-                    job.get("Anaplan", False),
-                    job.get("SAP APO", False),
-                    job.get("Planning", False),
-                    job.get("No Relocation Support", False),
-                    job.get("Remote", False),
-                    job.get("Already Applied", False),
-                    job.get("Job URL", ""),
-                    job.get("Elapsed Time (s)", ""),
-                    job.get("Skills", ""),
-                    job.get("TG message sent", "")
-                ]
-                log_parser_event_to_sheets(row, config["google_sheets_credentials"], config["google_sheets_url"])
+            batch_log_parser_events_to_sheets(logs_buffer, config["google_sheets_credentials"], config["google_sheets_url"])
     except Exception as e:
         logging.error(f"Ошибка при разборе текущей страницы: {e}")
 

@@ -119,11 +119,19 @@ try:
         if dedup_priority == "First event (any stage)":
             filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
         elif dedup_priority == "Prefer TG message sent if exists":
-            # Сначала строки с TG message sent == 'yes', потом остальные, оставить первую
-            filtered_df = filtered_df.sort_values(
-                by=["Company", "Vacancy Title", filtered_df["TG message sent"] == "yes"],
-                ascending=[True, True, False]
-            ).drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+            if "TG message sent" in filtered_df.columns:
+                # Привести к строке и сравнивать строго с 'yes'
+                filtered_df["_tg_sent_sort"] = filtered_df["TG message sent"].astype(str).str.strip().str.lower() == "yes"
+                filtered_df = (
+                    filtered_df.sort_values(
+                        by=["Company", "Vacancy Title", "_tg_sent_sort"],
+                        ascending=[True, True, False]
+                    )
+                    .drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+                    .drop(columns=["_tg_sent_sort"])
+                )
+            else:
+                filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
 
     # --- LIVE ПРОГРЕСС ---
     st.sidebar.markdown("---")
