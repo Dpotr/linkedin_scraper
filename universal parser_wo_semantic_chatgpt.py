@@ -249,6 +249,22 @@ def log_parser_event_to_sheets(event_dict, credentials_path, sheet_url, log_shee
             if col not in headers:
                 worksheet.update_cell(1, len(headers)+1, col)
                 headers.append(col)
+        # --- Duplicate check logic ---
+        key_fields = ["Company", "Vacancy Title", "Stage", "TG message sent"]
+        key_indices = [headers.index(f)+1 for f in key_fields if f in headers]
+        if len(key_indices) == 4:
+            all_rows = worksheet.get_all_values()[1:]
+            existing_keys = set()
+            for row in all_rows:
+                try:
+                    key = "-".join([row[i-1] for i in key_indices])
+                    existing_keys.add(key)
+                except Exception:
+                    continue
+            new_key = "-".join([str(event_dict.get(f, "")) for f in key_fields])
+            if new_key in existing_keys:
+                logging.info(f"Duplicate event (key: {new_key}) not logged to Google Sheets.")
+                return
         # Prepare row to append (align to headers)
         row = [event_dict.get(col, "") for col in headers]
         worksheet.append_row(row, value_input_option='USER_ENTERED')
@@ -271,7 +287,29 @@ def batch_log_parser_events_to_sheets(events, credentials_path, sheet_url):
                 if col not in headers:
                     worksheet.update_cell(1, len(headers)+1, col)
                     headers.append(col)
-        rows = [[event_dict.get(col, "") for col in headers] for event_dict in events]
+        # --- Duplicate check logic for batch ---
+        key_fields = ["Company", "Vacancy Title", "Stage", "TG message sent"]
+        key_indices = [headers.index(f)+1 for f in key_fields if f in headers]
+        all_rows = worksheet.get_all_values()[1:]
+        existing_keys = set()
+        if len(key_indices) == 4:
+            for row in all_rows:
+                try:
+                    key = "-".join([row[i-1] for i in key_indices])
+                    existing_keys.add(key)
+                except Exception:
+                    continue
+        filtered_events = []
+        for event_dict in events:
+            new_key = "-".join([str(event_dict.get(f, "")) for f in key_fields])
+            if len(key_indices) == 4 and new_key in existing_keys:
+                logging.info(f"Duplicate event (key: {new_key}) not logged to Google Sheets.")
+                continue
+            filtered_events.append(event_dict)
+            existing_keys.add(new_key)
+        if not filtered_events:
+            return
+        rows = [[event_dict.get(col, "") for col in headers] for event_dict in filtered_events]
         worksheet.append_rows(rows, value_input_option='USER_ENTERED')
     except Exception as e:
         logging.error(f"Error batch logging events to Google Sheets: {e}")
