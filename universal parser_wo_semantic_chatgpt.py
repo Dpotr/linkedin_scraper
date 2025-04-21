@@ -106,8 +106,10 @@ total_vacancies_checked = 0
 # ================================
 # Функция отправки сообщений в Telegram
 # ================================
-def send_telegram_message(bot_token, chat_id, message, images=None):
+def send_telegram_message(bot_token, chat_id, message, job_url=None, images=None):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    if job_url:
+        message += f"\n\n<a href='{job_url}'>Открыть вакансию на LinkedIn</a>"
     data = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
     try:
         resp = requests.post(url, data=data)
@@ -119,8 +121,8 @@ def send_telegram_message(bot_token, chat_id, message, images=None):
         logging.error(f"Ошибка подключения к Telegram: {e}")
     
     if images:
+        url_photo = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
         for img in images:
-            url_photo = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
             files = {"photo": img}
             data = {"chat_id": chat_id}
             try:
@@ -400,14 +402,37 @@ def parse_current_page(driver, wait, start_time, config):
                 except LangDetectException:
                     detected_language = "unknown"
 
-                job_url = driver.current_url
-                # Приводим ссылку к красивому виду (https://www.linkedin.com/jobs/view/ID)
-                match = re.search(r"linkedin.com/jobs/view/(\d+)", job_url)
-                if match:
-                    job_url = f"https://www.linkedin.com/jobs/view/{match.group(1)}"
-                else:
-                    # Если не удалось извлечь ID, оставляем оригинальный URL
-                    job_url = job_url.split("?")[0]
+                try:
+                    # 1. Самый специфичный класс
+                    try:
+                        link_elem = job.find_element(By.CSS_SELECTOR, "a.job-card-list__title--link")
+                    except Exception:
+                        # 2. Более общий класс
+                        try:
+                            link_elem = job.find_element(By.CSS_SELECTOR, "a.job-card-container__link")
+                        except Exception:
+                            link_elem = None
+
+                    job_url = link_elem.get_attribute('href') if link_elem else None
+                    if job_url and job_url.startswith('/jobs/view/'):
+                        job_url = 'https://www.linkedin.com' + job_url
+
+                    # 3. Если не нашли — старый fallback
+                    if not job_url:
+                        all_links = job.find_elements(By.TAG_NAME, 'a')
+                        for a in all_links:
+                            href = a.get_attribute('href')
+                            if href and '/jobs/view/' in href:
+                                if href.startswith('/jobs/view/'):
+                                    href = 'https://www.linkedin.com' + href
+                                job_url = href
+                                break
+
+                    if not job_url:
+                        logging.warning(f"[Job URL] Не удалось найти ссылку для: {job_title} / {job_company_name}\nHTML карточки:\n{job.get_attribute('outerHTML')}")
+                except Exception as ex:
+                    job_url = None
+                    logging.error(f"[Job URL] Ошибка поиска ссылки: {ex}\nHTML карточки:\n{job.get_attribute('outerHTML')}")
 
                 # ДО ФИЛЬТРОВ: логируем просмотр вакансии
                 matched_keywords = []
@@ -563,7 +588,7 @@ def parse_current_page(driver, wait, start_time, config):
                     images.append(p_chart)
                 if bar_chart:
                     images.append(bar_chart)
-                send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, images=images)
+                send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, job_url=job_url, images=images)
                 tg_sent = True
                 # Update log with TG message sent
                 logs_buffer.append({
