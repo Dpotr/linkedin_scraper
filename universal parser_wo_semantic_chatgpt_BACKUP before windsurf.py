@@ -21,8 +21,6 @@ import undetected_chromedriver as uc
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
 import os  # для shutdown системы
-import json
-import re
 
 # ================================
 # Настройка логирования
@@ -32,17 +30,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 # ================================
 # Значения по умолчанию
 # ================================
-TG_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "tg_config.json")
-try:
-    with open(TG_CONFIG_PATH, "r", encoding="utf-8") as f:
-        tg_config = json.load(f)
-        DEFAULT_TELEGRAM_BOT_TOKEN = tg_config.get("TELEGRAM_BOT_TOKEN", "")
-        DEFAULT_TELEGRAM_CHAT_ID = tg_config.get("TELEGRAM_CHAT_ID", "")
-except Exception as e:
-    DEFAULT_TELEGRAM_BOT_TOKEN = ""
-    DEFAULT_TELEGRAM_CHAT_ID = ""
-    logging.error(f"Ошибка чтения tg_config.json: {e}")
-
+DEFAULT_TELEGRAM_BOT_TOKEN = "7690052120:AAHewK4ztdFw7y-iCApCmRMkCwz9inLLkfI"
+DEFAULT_TELEGRAM_CHAT_ID = "1908191"
 DEFAULT_CHROMEDRIVER_PATH = r"C:\selenium\chromedriver.exe"
 DEFAULT_CHROME_PROFILE_PATH = r"C:\Users\potre\SeleniumProfileNew"
 DEFAULT_CHROME_BINARY_LOCATION = r"C:\Program Files\Google\Chrome Beta\Application\chrome.exe"
@@ -219,37 +208,6 @@ def create_bar_chart(results):
         return None
 
 # ================================
-# Google Sheets Integration
-# ================================
-def append_to_google_sheets(row, credentials_path, sheet_url):
-    """
-    Добавляет строку в Google Sheets, если такой "Vacancy Title - Company" ещё не существует.
-    :param row: list - данные для добавления (одна строка)
-    :param credentials_path: str - путь к JSON credentials
-    :param sheet_url: str - ссылка на Google Sheets
-    """
-    import gspread
-    try:
-        gc = gspread.service_account(filename=credentials_path)
-        sh = gc.open_by_url(sheet_url)
-        worksheet = sh.sheet1
-        # Проверяем наличие "Vacancy Title - Company" (3-я и 2-я колонка)
-        all_keys = set()
-        for r in worksheet.get_all_values()[1:]:
-            if len(r) > 2:
-                key = f"{str(r[2]).strip().lower()}-{str(r[1]).strip().lower()}"
-                all_keys.add(key)
-        vacancy_title = str(row[2]).strip().lower() if len(row) > 2 else None
-        company = str(row[1]).strip().lower() if len(row) > 1 else None
-        key = f"{vacancy_title}-{company}" if vacancy_title and company else None
-        if key and key not in all_keys:
-            worksheet.append_row(row, value_input_option='USER_ENTERED')
-        else:
-            logging.info(f"Дубликат по ключу: {key}, строка не добавлена в Google Sheets.")
-    except Exception as e:
-        logging.error(f"Ошибка при записи в Google Sheets: {e}")
-
-# ================================
 # Функция прокрутки
 # ================================
 def scroll_until_loaded(driver, pause_time=1, max_consecutive=3):
@@ -282,17 +240,6 @@ def parse_current_page(driver, wait, start_time, config):
         logging.info(f"Найдено вакансий на странице: {len(job_listings)}")
         total_vacancies_checked += len(job_listings)
         matching_jobs = []
-
-        # Используем пользовательские ключевые слова
-        keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
-        keywords_anaplan = config.get("keywords_anaplan") or KEYWORDS_ANAPLAN
-        keywords_sap = config.get("keywords_sap") or KEYWORDS_SAP
-        keywords_planning = config.get("keywords_planning") or KEYWORDS_PLANNING
-        no_relocation_requirements = config.get("no_relocation_requirements") or NO_RELOCATION_REQUIREMENTS
-        remote_requirements = config.get("remote_requirements") or REMOTE_REQUIREMENTS
-        all_keywords = config.get("all_keywords") or (
-            keywords_visa + keywords_anaplan + keywords_sap + keywords_planning + no_relocation_requirements + remote_requirements
-        )
 
         for i, job in enumerate(job_listings, start=1):
             try:
@@ -335,34 +282,20 @@ def parse_current_page(driver, wait, start_time, config):
                     detected_language = "unknown"
 
                 job_url = driver.current_url
-                # Приводим ссылку к красивому виду (https://www.linkedin.com/jobs/view/ID)
-                match = re.search(r"linkedin.com/jobs/view/(\d+)", job_url)
-                if match:
-                    job_url = f"https://www.linkedin.com/jobs/view/{match.group(1)}"
-                else:
-                    # Если не удалось извлечь ID, оставляем оригинальный URL
-                    job_url = job_url.split("?")[0]
 
                 # Определяем флаги соответствия
-                remote_found = any(x in desc_text for x in remote_requirements)
-                visa_or_relocation = any(x in desc_text for x in keywords_visa)
-                anaplan_found = any(x in desc_text for x in keywords_anaplan)
-                sap_apo_found = any(x in desc_text for x in keywords_sap)
-                planning_found = any(x in desc_text for x in keywords_planning)
+                remote_found = any(x in desc_text for x in REMOTE_REQUIREMENTS)
+                visa_or_relocation = any(x in desc_text for x in KEYWORDS_VISA)
+                anaplan_found = any(x in desc_text for x in KEYWORDS_ANAPLAN)
+                sap_apo_found = any(x in desc_text for x in KEYWORDS_SAP)
+                planning_found = any(x in desc_text for x in KEYWORDS_PLANNING)
                 already_applied = any(x in desc_text for x in ["applied", "see application", "you have already applied", "already submitted", "previously applied"])
-
-                # Быстрый парсинг навыков для каждой вакансии
-                title_words = set(re.findall(r"[A-Za-z0-9\-]+", job_title.lower()))
-                desc_words = set(re.findall(r"[A-Za-z0-9\-]+", desc_text))
-                stopwords = set(['and','or','the','a','of','to','in','for','on','at','by','with','without','from','is','are','as','an','be','it','this','that','will','not','but','if','we','you','our','your','can','may','all'])
-                skill_candidates = [w for w in title_words.union(desc_words) if len(w)>2 and w not in stopwords]
-                top_skills = sorted(skill_candidates, key=lambda x: desc_text.count(x) + job_title.lower().count(x), reverse=True)[:10]
 
                 # Новое условие: отправлять сообщение и сохранять только если одновременно
                 # есть совпадение по (REMOTE_REQUIREMENTS или KEYWORDS_VISA)
                 # и (KEYWORDS_ANAPLAN или KEYWORDS_SAP или KEYWORDS_PLANNING)
                 if not already_applied and ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
-                    matched_keywords = [kw for kw in all_keywords if kw in desc_text]
+                    matched_keywords = [kw for kw in ALL_KEYWORDS if kw in desc_text]
                     current_result = {
                         "Company": job_company_name,
                         "Vacancy Title": job_title,
@@ -370,12 +303,11 @@ def parse_current_page(driver, wait, start_time, config):
                         "Anaplan": anaplan_found,
                         "SAP APO": sap_apo_found,
                         "Planning": planning_found,
-                        "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                        "No Relocation Support": any(x in desc_text for x in NO_RELOCATION_REQUIREMENTS),
                         "Remote": remote_found,
                         "Already Applied": already_applied,
                         "Job URL": job_url,
-                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                        "Skills": ", ".join(top_skills)
+                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2)
                     }
                     matching_jobs.append(current_result)
                     running_minutes = (time.perf_counter() - start_time) / 60
@@ -385,7 +317,6 @@ def parse_current_page(driver, wait, start_time, config):
                         f"Компания: <b>{job_company_name}</b>\n"
                         f"Вакансия: <b>{job_title}</b>\n\n"
                         f"Matched key words: {', '.join(matched_keywords)}\n"
-                        f"Навыки: {', '.join(top_skills)}\n"
                         f"Язык описания: {detected_language.upper()}\n\n"
                         f"Ссылка на вакансию: <a href='{job_url}'>{job_url}</a>\n\n"
                         f"Всего проверено вакансий: {total_vacancies_checked}\n"
@@ -404,25 +335,6 @@ def parse_current_page(driver, wait, start_time, config):
                 continue
 
         results.extend(matching_jobs)
-        # --- Google Sheets: запись результатов ---
-        if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
-            for job in matching_jobs:
-                row = [
-                    time.strftime("%Y-%m-%d %H:%M:%S"),
-                    job.get("Company", ""),
-                    job.get("Vacancy Title", ""),
-                    job.get("Visa Sponsorship or Relocation", False),
-                    job.get("Anaplan", False),
-                    job.get("SAP APO", False),
-                    job.get("Planning", False),
-                    job.get("No Relocation Support", False),
-                    job.get("Remote", False),
-                    job.get("Already Applied", False),
-                    job.get("Job URL", ""),
-                    job.get("Elapsed Time (s)", ""),
-                    job.get("Skills", "")
-                ]
-                append_to_google_sheets(row, config["google_sheets_credentials"], config["google_sheets_url"])
     except Exception as e:
         logging.error(f"Ошибка при разборе текущей страницы: {e}")
 
@@ -434,30 +346,6 @@ def run_scraper(config):
     results = []
     total_vacancies_checked = 0
     start_time = time.perf_counter()
-
-    # Используем пользовательские ключевые слова, если они есть, иначе дефолтные
-    keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
-    keywords_anaplan = config.get("keywords_anaplan") or KEYWORDS_ANAPLAN
-    keywords_sap = config.get("keywords_sap") or KEYWORDS_SAP
-    keywords_planning = config.get("keywords_planning") or KEYWORDS_PLANNING
-    no_relocation_requirements = config.get("no_relocation_requirements") or NO_RELOCATION_REQUIREMENTS
-    remote_requirements = config.get("remote_requirements") or REMOTE_REQUIREMENTS
-    all_keywords = (
-        keywords_visa
-        + keywords_anaplan
-        + keywords_sap
-        + keywords_planning
-        + no_relocation_requirements
-        + remote_requirements
-    )
-    # Передаче all_keywords и остальные списки в parse_current_page через config
-    config["all_keywords"] = all_keywords
-    config["keywords_visa"] = keywords_visa
-    config["keywords_anaplan"] = keywords_anaplan
-    config["keywords_sap"] = keywords_sap
-    config["keywords_planning"] = keywords_planning
-    config["no_relocation_requirements"] = no_relocation_requirements
-    config["remote_requirements"] = remote_requirements
 
     options = uc.ChromeOptions()
     options.add_argument(f"--user-data-dir={config['chrome_profile_path']}")
@@ -537,8 +425,7 @@ def run_scraper(config):
             "Remote": False,
             "Already Applied": False,
             "Job URL": None,
-            "Elapsed Time (s)": elapsed_time,
-            "Skills": ""
+            "Elapsed Time (s)": elapsed_time
         })
         save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
     finally:
@@ -569,16 +456,6 @@ def create_gui():
     chrome_binary_location_var = tk.StringVar(value=DEFAULT_CHROME_BINARY_LOCATION)
     shutdown_var = tk.BooleanVar(value=False)
 
-    keywords_visa_var = tk.StringVar(value=", ".join(KEYWORDS_VISA))
-    keywords_anaplan_var = tk.StringVar(value=", ".join(KEYWORDS_ANAPLAN))
-    keywords_sap_var = tk.StringVar(value=", ".join(KEYWORDS_SAP))
-    keywords_planning_var = tk.StringVar(value=", ".join(KEYWORDS_PLANNING))
-    no_relocation_requirements_var = tk.StringVar(value=", ".join(NO_RELOCATION_REQUIREMENTS))
-    remote_requirements_var = tk.StringVar(value=", ".join(REMOTE_REQUIREMENTS))
-
-    google_sheets_url_var = tk.StringVar(value="https://docs.google.com/spreadsheets/d/173Zb-CkHxamDlQ3q7aFD-1Ay3nk6W7hrEq2aD6y4VJ4/edit?usp=sharing")
-    google_sheets_credentials_var = tk.StringVar(value="C:/Users/potre/OneDrive/LinkedIn_Automation/google_sheets_credentials.json")
-
     tk.Label(root, text="Search Country:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
     tk.Entry(root, textvariable=search_country_var, width=40).grid(row=0, column=1, padx=5, pady=5)
     tk.Label(root, text="Keyword:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
@@ -607,30 +484,10 @@ def create_gui():
     tk.Button(root, text="Browse", command=lambda: chrome_binary_location_var.set(
         filedialog.askopenfilename(filetypes=[("Chrome Executable", "*.exe")])
     )).grid(row=7, column=2, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Visa/Relocation").grid(row=10, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_visa_var, width=40).grid(row=10, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Anaplan").grid(row=11, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_anaplan_var, width=40).grid(row=11, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: SAP").grid(row=12, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_sap_var, width=40).grid(row=12, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Planning").grid(row=13, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_planning_var, width=40).grid(row=13, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: No Relocation").grid(row=14, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=no_relocation_requirements_var, width=40).grid(row=14, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Remote").grid(row=15, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=remote_requirements_var, width=40).grid(row=15, column=1, padx=5, pady=5)
-    tk.Label(root, text="Google Sheets URL:").grid(row=16, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=google_sheets_url_var, width=40).grid(row=16, column=1, padx=5, pady=5)
-    tk.Label(root, text="Google Sheets Credentials:").grid(row=17, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=google_sheets_credentials_var, width=40).grid(row=17, column=1, padx=5, pady=5)
-    tk.Button(root, text="Browse", command=lambda: google_sheets_credentials_var.set(
-        filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
-    )).grid(row=17, column=2, padx=5, pady=5)
     shutdown_checkbox = tk.Checkbutton(root, text="Выключить компьютер после завершения работы скрипта", variable=shutdown_var)
     shutdown_checkbox.grid(row=8, column=0, columnspan=3, pady=5)
 
     def on_start():
-        # Получаем пользовательские ключевые слова и разбиваем их по запятым
         config = {
             "search_country": search_country_var.get(),
             "keyword": keyword_var.get(),
@@ -640,15 +497,7 @@ def create_gui():
             "chromedriver_path": chromedriver_path_var.get(),
             "chrome_profile_path": chrome_profile_path_var.get(),
             "chrome_binary_location": chrome_binary_location_var.get(),
-            "shutdown_on_finish": shutdown_var.get(),
-            "keywords_visa": [kw.strip() for kw in keywords_visa_var.get().split(",") if kw.strip()],
-            "keywords_anaplan": [kw.strip() for kw in keywords_anaplan_var.get().split(",") if kw.strip()],
-            "keywords_sap": [kw.strip() for kw in keywords_sap_var.get().split(",") if kw.strip()],
-            "keywords_planning": [kw.strip() for kw in keywords_planning_var.get().split(",") if kw.strip()],
-            "no_relocation_requirements": [kw.strip() for kw in no_relocation_requirements_var.get().split(",") if kw.strip()],
-            "remote_requirements": [kw.strip() for kw in remote_requirements_var.get().split(",") if kw.strip()],
-            "google_sheets_url": google_sheets_url_var.get(),
-            "google_sheets_credentials": google_sheets_credentials_var.get()
+            "shutdown_on_finish": shutdown_var.get()
         }
         if not config["output_file_path"]:
             messagebox.showerror("Ошибка", "Укажите путь для сохранения Excel файла.")
@@ -656,7 +505,7 @@ def create_gui():
         root.destroy()
         start_scraper_thread(config)
 
-    tk.Button(root, text="Start Scraper", command=on_start, bg="green", fg="white").grid(row=18, column=0, columnspan=3, pady=10)
+    tk.Button(root, text="Start Scraper", command=on_start, bg="green", fg="white").grid(row=9, column=0, columnspan=3, pady=10)
     root.mainloop()
 
 if __name__ == "__main__":
