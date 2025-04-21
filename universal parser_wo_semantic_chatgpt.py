@@ -221,33 +221,31 @@ def create_bar_chart(results):
 # ================================
 # Google Sheets Integration
 # ================================
-def append_to_google_sheets(row, credentials_path, sheet_url):
+def log_parser_event_to_sheets(event_dict, credentials_path, sheet_url, log_sheet_name=None):
     """
-    Добавляет строку в Google Sheets, если такой "Vacancy Title - Company" ещё не существует.
-    :param row: list - данные для добавления (одна строка)
-    :param credentials_path: str - путь к JSON credentials
-    :param sheet_url: str - ссылка на Google Sheets
+    Logs parser event as a new row in the main Google Sheet (not a separate tab).
+    :param event_dict: dict - event info (stage, vacancy, reason, etc.)
+    :param credentials_path: str - path to JSON credentials
+    :param sheet_url: str - Google Sheets URL
+    :param log_sheet_name: str - ignored (for compatibility)
     """
     import gspread
     try:
         gc = gspread.service_account(filename=credentials_path)
         sh = gc.open_by_url(sheet_url)
         worksheet = sh.sheet1
-        # Проверяем наличие "Vacancy Title - Company" (3-я и 2-я колонка)
-        all_keys = set()
-        for r in worksheet.get_all_values()[1:]:
-            if len(r) > 2:
-                key = f"{str(r[2]).strip().lower()}-{str(r[1]).strip().lower()}"
-                all_keys.add(key)
-        vacancy_title = str(row[2]).strip().lower() if len(row) > 2 else None
-        company = str(row[1]).strip().lower() if len(row) > 1 else None
-        key = f"{vacancy_title}-{company}" if vacancy_title and company else None
-        if key and key not in all_keys:
-            worksheet.append_row(row, value_input_option='USER_ENTERED')
-        else:
-            logging.info(f"Дубликат по ключу: {key}, строка не добавлена в Google Sheets.")
+        # Ensure header exists
+        headers = worksheet.row_values(1)
+        # Add any missing columns from event_dict
+        for col in event_dict.keys():
+            if col not in headers:
+                worksheet.update_cell(1, len(headers)+1, col)
+                headers.append(col)
+        # Prepare row to append (align to headers)
+        row = [event_dict.get(col, "") for col in headers]
+        worksheet.append_row(row, value_input_option='USER_ENTERED')
     except Exception as e:
-        logging.error(f"Ошибка при записи в Google Sheets: {e}")
+        logging.error(f"Error logging event to Google Sheets (main sheet): {e}")
 
 # ================================
 # Функция прокрутки
@@ -343,6 +341,26 @@ def parse_current_page(driver, wait, start_time, config):
                     # Если не удалось извлечь ID, оставляем оригинальный URL
                     job_url = job_url.split("?")[0]
 
+                # ДО ФИЛЬТРОВ: логируем просмотр вакансии
+                if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
+                    log_parser_event_to_sheets({
+                        "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Stage": "Viewed",
+                        "Company": job_company_name,
+                        "Vacancy Title": job_title,
+                        "Visa Sponsorship or Relocation": False,
+                        "Anaplan": False,
+                        "SAP APO": False,
+                        "Planning": False,
+                        "No Relocation Support": False,
+                        "Remote": False,
+                        "Already Applied": False,
+                        "Job URL": job_url,
+                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                        "Skills": "",
+                        "TG message sent": ""
+                    }, config["google_sheets_credentials"], config["google_sheets_url"])
+
                 # Определяем флаги соответствия
                 remote_found = any(x in desc_text for x in remote_requirements)
                 visa_or_relocation = any(x in desc_text for x in keywords_visa)
@@ -358,12 +376,56 @@ def parse_current_page(driver, wait, start_time, config):
                 skill_candidates = [w for w in title_words.union(desc_words) if len(w)>2 and w not in stopwords]
                 top_skills = sorted(skill_candidates, key=lambda x: desc_text.count(x) + job_title.lower().count(x), reverse=True)[:10]
 
-                # Новое условие: отправлять сообщение и сохранять только если одновременно
-                # есть совпадение по (REMOTE_REQUIREMENTS или KEYWORDS_VISA)
-                # и (KEYWORDS_ANAPLAN или KEYWORDS_SAP или KEYWORDS_PLANNING)
-                if not already_applied and ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
-                    matched_keywords = [kw for kw in all_keywords if kw in desc_text]
-                    current_result = {
+                # ФИЛЬТРЫ: если вакансия отсеяна
+                if already_applied:
+                    if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
+                        log_parser_event_to_sheets({
+                            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "Stage": "Filtered (already applied)",
+                            "Company": job_company_name,
+                            "Vacancy Title": job_title,
+                            "Visa Sponsorship or Relocation": visa_or_relocation,
+                            "Anaplan": anaplan_found,
+                            "SAP APO": sap_apo_found,
+                            "Planning": planning_found,
+                            "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                            "Remote": remote_found,
+                            "Already Applied": already_applied,
+                            "Job URL": job_url,
+                            "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                            "Skills": ", ".join(top_skills),
+                            "TG message sent": ""
+                        }, config["google_sheets_credentials"], config["google_sheets_url"])
+                    continue
+
+                # Если не прошла по условиям (remote/visa/anaplan/sap/planning)
+                if not ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
+                    if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
+                        log_parser_event_to_sheets({
+                            "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "Stage": "Filtered (criteria)",
+                            "Company": job_company_name,
+                            "Vacancy Title": job_title,
+                            "Visa Sponsorship or Relocation": visa_or_relocation,
+                            "Anaplan": anaplan_found,
+                            "SAP APO": sap_apo_found,
+                            "Planning": planning_found,
+                            "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                            "Remote": remote_found,
+                            "Already Applied": already_applied,
+                            "Job URL": job_url,
+                            "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                            "Skills": ", ".join(top_skills),
+                            "TG message sent": ""
+                        }, config["google_sheets_credentials"], config["google_sheets_url"])
+                    continue
+
+                # ПРОШЛА ФИЛЬТРЫ: логируем
+                tg_sent = False
+                if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
+                    log_parser_event_to_sheets({
+                        "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Stage": "Passed filters",
                         "Company": job_company_name,
                         "Vacancy Title": job_title,
                         "Visa Sponsorship or Relocation": visa_or_relocation,
@@ -375,35 +437,73 @@ def parse_current_page(driver, wait, start_time, config):
                         "Already Applied": already_applied,
                         "Job URL": job_url,
                         "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
-                        "Skills": ", ".join(top_skills)
-                    }
-                    matching_jobs.append(current_result)
-                    running_minutes = (time.perf_counter() - start_time) / 60
-                    summary = get_excel_summary(config["output_file_path"], running_minutes)
-                    message_text = (
-                        f"🔔 Найдена вакансия по ключевому слову <b>{config['keyword']}</b>\n"
-                        f"Компания: <b>{job_company_name}</b>\n"
-                        f"Вакансия: <b>{job_title}</b>\n\n"
-                        f"Matched key words: {', '.join(matched_keywords)}\n"
-                        f"Навыки: {', '.join(top_skills)}\n"
-                        f"Язык описания: {detected_language.upper()}\n\n"
-                        f"Ссылка на вакансию: <a href='{job_url}'>{job_url}</a>\n\n"
-                        f"Всего проверено вакансий: {total_vacancies_checked}\n"
-                        + summary
-                    )
-                    p_chart = create_p_chart(results)
-                    bar_chart = create_bar_chart(results)
-                    images = []
-                    if p_chart:
-                        images.append(p_chart)
-                    if bar_chart:
-                        images.append(bar_chart)
-                    send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, images=images)
+                        "Skills": ", ".join(top_skills),
+                        "TG message sent": ""
+                    }, config["google_sheets_credentials"], config["google_sheets_url"])
+
+                matched_keywords = [kw for kw in all_keywords if kw in desc_text]
+                current_result = {
+                    "Company": job_company_name,
+                    "Vacancy Title": job_title,
+                    "Visa Sponsorship or Relocation": visa_or_relocation,
+                    "Anaplan": anaplan_found,
+                    "SAP APO": sap_apo_found,
+                    "Planning": planning_found,
+                    "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                    "Remote": remote_found,
+                    "Already Applied": already_applied,
+                    "Job URL": job_url,
+                    "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                    "Skills": ", ".join(top_skills)
+                }
+                matching_jobs.append(current_result)
+                running_minutes = (time.perf_counter() - start_time) / 60
+                summary = get_excel_summary(config["output_file_path"], running_minutes)
+                message_text = (
+                    f"🔔 Найдена вакансия по ключевому слову <b>{config['keyword']}</b>\n"
+                    f"Компания: <b>{job_company_name}</b>\n"
+                    f"Вакансия: <b>{job_title}</b>\n\n"
+                    f"Matched key words: {', '.join(matched_keywords)}\n"
+                    f"Навыки: {', '.join(top_skills)}\n"
+                    f"Язык описания: {detected_language.upper()}\n\n"
+                    f"Ссылка на вакансию: <a href='{job_url}'>{job_url}</a>\n\n"
+                    f"Всего проверено вакансий: {total_vacancies_checked}\n"
+                    + summary
+                )
+                p_chart = create_p_chart(results)
+                bar_chart = create_bar_chart(results)
+                images = []
+                if p_chart:
+                    images.append(p_chart)
+                if bar_chart:
+                    images.append(bar_chart)
+                send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, images=images)
+                tg_sent = True
+                # Update log with TG message sent
+                if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
+                    log_parser_event_to_sheets({
+                        "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Stage": "Passed filters",
+                        "Company": job_company_name,
+                        "Vacancy Title": job_title,
+                        "Visa Sponsorship or Relocation": visa_or_relocation,
+                        "Anaplan": anaplan_found,
+                        "SAP APO": sap_apo_found,
+                        "Planning": planning_found,
+                        "No Relocation Support": any(x in desc_text for x in no_relocation_requirements),
+                        "Remote": remote_found,
+                        "Already Applied": already_applied,
+                        "Job URL": job_url,
+                        "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
+                        "Skills": ", ".join(top_skills),
+                        "TG message sent": "yes"
+                    }, config["google_sheets_credentials"], config["google_sheets_url"])
+
+                results.append(current_result)
             except Exception as e:
                 logging.error(f"Ошибка при обработке вакансии №{i}: {e}")
                 continue
 
-        results.extend(matching_jobs)
         # --- Google Sheets: запись результатов ---
         if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
             for job in matching_jobs:
@@ -420,9 +520,10 @@ def parse_current_page(driver, wait, start_time, config):
                     job.get("Already Applied", False),
                     job.get("Job URL", ""),
                     job.get("Elapsed Time (s)", ""),
-                    job.get("Skills", "")
+                    job.get("Skills", ""),
+                    job.get("TG message sent", "")
                 ]
-                append_to_google_sheets(row, config["google_sheets_credentials"], config["google_sheets_url"])
+                log_parser_event_to_sheets(row, config["google_sheets_credentials"], config["google_sheets_url"])
     except Exception as e:
         logging.error(f"Ошибка при разборе текущей страницы: {e}")
 
@@ -538,7 +639,8 @@ def run_scraper(config):
             "Already Applied": False,
             "Job URL": None,
             "Elapsed Time (s)": elapsed_time,
-            "Skills": ""
+            "Skills": "",
+            "TG message sent": ""
         })
         save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
     finally:
@@ -607,25 +709,6 @@ def create_gui():
     tk.Button(root, text="Browse", command=lambda: chrome_binary_location_var.set(
         filedialog.askopenfilename(filetypes=[("Chrome Executable", "*.exe")])
     )).grid(row=7, column=2, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Visa/Relocation").grid(row=10, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_visa_var, width=40).grid(row=10, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Anaplan").grid(row=11, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_anaplan_var, width=40).grid(row=11, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: SAP").grid(row=12, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_sap_var, width=40).grid(row=12, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Planning").grid(row=13, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=keywords_planning_var, width=40).grid(row=13, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: No Relocation").grid(row=14, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=no_relocation_requirements_var, width=40).grid(row=14, column=1, padx=5, pady=5)
-    tk.Label(root, text="Ключевые слова: Remote").grid(row=15, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=remote_requirements_var, width=40).grid(row=15, column=1, padx=5, pady=5)
-    tk.Label(root, text="Google Sheets URL:").grid(row=16, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=google_sheets_url_var, width=40).grid(row=16, column=1, padx=5, pady=5)
-    tk.Label(root, text="Google Sheets Credentials:").grid(row=17, column=0, sticky="e", padx=5, pady=5)
-    tk.Entry(root, textvariable=google_sheets_credentials_var, width=40).grid(row=17, column=1, padx=5, pady=5)
-    tk.Button(root, text="Browse", command=lambda: google_sheets_credentials_var.set(
-        filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
-    )).grid(row=17, column=2, padx=5, pady=5)
     shutdown_checkbox = tk.Checkbutton(root, text="Выключить компьютер после завершения работы скрипта", variable=shutdown_var)
     shutdown_checkbox.grid(row=8, column=0, columnspan=3, pady=5)
 

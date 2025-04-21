@@ -99,6 +99,9 @@ try:
         st.session_state['skill_filter'] = []
     skill_filter = st.sidebar.multiselect("Фильтр по навыкам (Skills)", options=all_skills, default=st.session_state['skill_filter'], key='skill_filter')
 
+    # --- Галочка: удалять дубликаты вакансий ---
+    remove_duplicates = st.sidebar.checkbox("Remove vacancies duplicates (by Company + Vacancy Title)", value=True)
+
     filtered_df = df[
         df['Company'].isin(company_filter)
         & df['Vacancy Title'].isin(vacancy_filter)
@@ -106,25 +109,125 @@ try:
     if skill_filter:
         filtered_df = filtered_df[filtered_df['Skills'].apply(lambda x: any(skill in str(x) for skill in skill_filter))]
 
+    if remove_duplicates and "Company" in filtered_df.columns and "Vacancy Title" in filtered_df.columns:
+        filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+
+    # --- LIVE ПРОГРЕСС ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("Live-прогресс поиска")
+    total_jobs = len(df)
+    filtered_jobs = len(filtered_df)
+    st.sidebar.metric("Всего вакансий", total_jobs)
+    st.sidebar.metric("Вакансий после фильтров", filtered_jobs)
+    st.sidebar.progress(filtered_jobs / total_jobs if total_jobs else 0)
+
+    # --- Воронка поиска (Funnel) ---
+    st.subheader("Воронка поиска (Funnel)")
+    funnel_data = {
+        "Найдено": [len(df)],
+        "После фильтров": [len(filtered_df)],
+        # Можно добавить этапы, если есть логи отправки в Telegram/Sheets
+    }
+    funnel_df = pd.DataFrame(funnel_data)
+    st.bar_chart(funnel_df.T)
+
+    # --- FUNNEL: REAL PROGRESS FROM MAIN SHEET ---
+    import gspread
+    st.subheader("Search Funnel (All Stages)")
+    funnel_counts = {}
+    try:
+        gc = gspread.service_account(filename=st.secrets["google_sheets_credentials"])
+        sh = gc.open_by_url(st.secrets["google_sheets_url"])
+        ws = sh.sheet1
+        log_df = pd.DataFrame(ws.get_all_records())
+        for stage in ["Viewed", "Filtered (already applied)", "Filtered (criteria)", "Passed filters"]:
+            funnel_counts[stage] = (log_df["Stage"] == stage).sum()
+        funnel_df = pd.DataFrame(list(funnel_counts.items()), columns=["Stage", "Count"])
+        st.bar_chart(funnel_df.set_index("Stage"))
+    except Exception as e:
+        st.info(f"Unable to load funnel from main sheet: {e}")
+
+    # --- Filter main data for all analytics by Stage ---
+    filtered_df = df[df.get("Stage", "Passed filters") == "Passed filters"] if "Stage" in df.columns else df
+
+    # --- Heatmap активности по времени ---
+    st.subheader("Активность по времени (день/час)")
+    if 'Timestamp' in df.columns:
+        dt = pd.to_datetime(df['Timestamp'], errors='coerce')
+        if not dt.isnull().all():
+            df['weekday'] = dt.dt.day_name()
+            df['hour'] = dt.dt.hour
+            heatmap_time = pd.pivot_table(df, index='weekday', columns='hour', values='Vacancy Title', aggfunc='count', fill_value=0)
+            import seaborn as sns
+            fig_time, ax_time = plt.subplots(figsize=(12, 4))
+            sns.heatmap(heatmap_time, cmap='YlOrRd', ax=ax_time)
+            ax_time.set_title('Heatmap: Активность по дням и часам')
+            st.pyplot(fig_time)
+        else:
+            st.info("Нет данных для построения heatmap активности.")
+    else:
+        st.info("Нет данных для построения heatmap активности.")
+
+    # --- Топ компаний и вакансий ---
+    st.subheader("Топ компаний и вакансий")
+    if 'Company' in filtered_df.columns:
+        st.write("**Топ-10 компаний:**")
+        st.dataframe(filtered_df['Company'].value_counts().head(10).reset_index().rename(columns={'index': 'Компания', 'Company': 'Вакансий'}), hide_index=True)
+    if 'Vacancy Title' in filtered_df.columns:
+        st.write("**Топ-10 вакансий:**")
+        st.dataframe(filtered_df['Vacancy Title'].value_counts().head(10).reset_index().rename(columns={'index': 'Вакансия', 'Vacancy Title': 'Частота'}), hide_index=True)
+
+    # --- Отсеивание по фильтрам ---
+    st.subheader("Статистика по фильтрам")
+    filter_stats = {}
+    for col in ['Relocation', 'Remote', 'Experience', 'Skills']:
+        if col in df.columns:
+            total = df[col].notnull().sum()
+            filtered = filtered_df[col].notnull().sum()
+            filter_stats[col] = [total-filtered, filtered]
+    if filter_stats:
+        filter_stats_df = pd.DataFrame(filter_stats, index=['Отсеяно', 'Пропущено'])
+        st.bar_chart(filter_stats_df)
+    else:
+        st.info("Нет данных для статистики по фильтрам.")
+
+    # --- Мониторинг ошибок ---
+    st.subheader("Мониторинг ошибок")
+    if 'Error' in df.columns:
+        st.write("Последние ошибки:")
+        st.dataframe(df[['Timestamp', 'Error']].dropna().tail(10), hide_index=True)
+        st.write(f"Всего ошибок: {df['Error'].notnull().sum()}")
+    else:
+        st.info("Нет данных по ошибкам.")
+
+    # --- География вакансий (если есть) ---
+    if 'Location' in df.columns:
+        st.subheader("География вакансий")
+        geo_counts = df['Location'].value_counts().head(20).reset_index().rename(columns={'index': 'Место', 'Location': 'Вакансий'})
+        st.dataframe(geo_counts, hide_index=True)
+        # Можно добавить map, если есть координаты
+
+    # --- Сравнение с предыдущими периодами ---
+    st.subheader("Динамика по сравнению с прошлым периодом")
+    if 'Date' in filtered_df.columns:
+        last_week = filtered_df[filtered_df['Date'] >= (pd.Timestamp.now().date() - pd.Timedelta(days=7))]
+        prev_week = filtered_df[(filtered_df['Date'] < (pd.Timestamp.now().date() - pd.Timedelta(days=7))) & (filtered_df['Date'] >= (pd.Timestamp.now().date() - pd.Timedelta(days=14)))]
+        st.metric("Вакансий за последнюю неделю", len(last_week), delta=len(last_week)-len(prev_week))
+
     # --- User-friendly таблица ---
     st.dataframe(filtered_df, use_container_width=True, height=420, hide_index=True)
-    # --- Bar chart по критериям ---
-    st.subheader("Bar chart по критериям (True/False)")
-    bool_cols = [col for col in filtered_df.columns if filtered_df[col].dtype == 'bool']
-    if bool_cols and filtered_df[bool_cols].sum().sum() > 0:
-        st.bar_chart(filtered_df[bool_cols].sum())
-    else:
-        st.info("Нет данных для построения bar chart по критериям.")
+
     # --- Pie chart по компаниям ---
-    st.subheader("Распределение вакансий по компаниям (Pie chart)")
     if 'Company' in filtered_df.columns and not filtered_df['Company'].isnull().all():
         company_counts = filtered_df['Company'].value_counts()
         fig1, ax1 = plt.subplots()
         ax1.pie(company_counts, labels=company_counts.index, autopct='%1.1f%%', startangle=90)
         ax1.axis('equal')
+        st.subheader("Распределение вакансий по компаниям")
         st.pyplot(fig1)
     else:
         st.info("Нет данных для построения pie chart по компаниям.")
+
     # --- График по времени (количество вакансий по дням) ---
     st.subheader("Вакансии по дням (Time Series)")
     if 'Timestamp' in filtered_df.columns:
@@ -134,19 +237,10 @@ try:
             st.line_chart(daily_counts)
         else:
             st.info("Нет данных для построения графика по дням.")
-    # --- Heatmap по критериям и компаниям ---
-    st.subheader("Heatmap: компании vs критерии")
-    if bool_cols and 'Company' in filtered_df.columns and not filtered_df['Company'].isnull().all():
-        heatmap_data = filtered_df.groupby('Company')[bool_cols].sum()
-        if not heatmap_data.empty and heatmap_data.values.sum() > 0:
-            fig2, ax2 = plt.subplots(figsize=(8, max(3, len(heatmap_data)//2)))
-            sns.heatmap(heatmap_data, annot=True, fmt='d', cmap='Blues', ax=ax2)
-            st.pyplot(fig2)
-        else:
-            st.info("Нет данных для построения heatmap по критериям и компаниям.")
     else:
-        st.info("Нет данных для построения heatmap по критериям и компаниям.")
-    # --- Heatmap топ навыков: что ищут компании (skills) ---
+        st.info("Нет данных для построения графика по дням.")
+
+    # --- Heatmap: топ навыков по компаниям (skills) ---
     st.subheader("Heatmap: топ навыков по компаниям (skills)")
     if 'Skills' in filtered_df.columns and 'Company' in filtered_df.columns:
         from collections import Counter
@@ -171,35 +265,7 @@ try:
             st.info("Нет данных для построения heatmap по навыкам.")
     else:
         st.info("Нет данных для построения heatmap по навыкам.")
-    # --- Heatmap топ навыков: что ищут компании, которые НЕ попали (пример: нет совпадения по критериям) ---
-    st.subheader("Heatmap: топ навыков (компании без совпадения по критериям)")
-    if 'Skills' in filtered_df.columns and 'Company' in filtered_df.columns and bool_cols:
-        # Компании, у которых нет True ни по одному критерию
-        companies_no_match = filtered_df.groupby('Company')[bool_cols].sum().sum(axis=1)
-        companies_no_match = companies_no_match[companies_no_match == 0].index.tolist()
-        if companies_no_match:
-            all_skills = list(itertools.chain.from_iterable(
-                [s.strip() for s in str(row.get('Skills', '')).split(",") if s.strip()]
-                for _, row in filtered_df[filtered_df['Company'].isin(companies_no_match)].iterrows()
-            ))
-            most_common_skills = [w for w, _ in Counter(all_skills).most_common(10)]
-            skill_matrix = pd.DataFrame(0, index=companies_no_match, columns=most_common_skills)
-            for _, row in filtered_df[filtered_df['Company'].isin(companies_no_match)].iterrows():
-                company = row['Company']
-                skills = [s.strip() for s in str(row.get('Skills', '')).split(",") if s.strip()]
-                for skill in most_common_skills:
-                    if skill in skills:
-                        skill_matrix.at[company, skill] += 1
-            if not skill_matrix.empty and skill_matrix.values.sum() > 0:
-                fig4, ax4 = plt.subplots(figsize=(10, max(3, len(skill_matrix)//2)))
-                sns.heatmap(skill_matrix, annot=True, fmt='d', cmap='Oranges', ax=ax4)
-                st.pyplot(fig4)
-            else:
-                st.info("Нет данных для построения heatmap по навыкам для компаний без совпадений.")
-        else:
-            st.info("Нет компаний без совпадений по критериям.")
-    else:
-        st.info("Нет данных для построения heatmap по навыкам для компаний без совпадений.")
+
     # --- Tag Cloud по навыкам (Skills) ---
     st.subheader("Облако навыков (Skills Tag Cloud)")
     if 'Skills' in filtered_df.columns:

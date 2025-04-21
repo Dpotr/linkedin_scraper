@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.1 (2025-04-21)
+
+### Major Features & Improvements
+- **Full logging of all job stages**: All stages (Viewed, Filtered, Passed filters, TG message sent) are now logged as separate rows in the main Google Sheets tab. All columns (including skills, flags, elapsed time, etc.) are always filled for every stage.
+- **Column 'TG message sent'**: Added to log when a Telegram notification was sent for a vacancy.
+- **Streamlit: Remove duplicates**: Added checkbox to show only unique vacancies (by Company + Vacancy Title) on all boards and analytics.
+- **Stage-based analytics**: Dashboard funnel and analytics now use the main sheet and the 'Stage' column for all calculations.
+- **Performance**: Logging and analytics now use a single worksheet, minimizing Google Sheets API quota issues.
+
+### Minor
+- Improved error handling, code cleanup, and documentation.
+
 ## v2.0 (2025-04-21)
 
 ### Major Features & Improvements
