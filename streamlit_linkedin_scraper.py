@@ -142,7 +142,22 @@ try:
             "Filtered (already applied)"
         ]
         for stage in stages:
-            funnel_counts[stage] = (log_df["Stage"] == stage).sum()
+            if stage == "TG message sent":
+                # Для этого этапа считаем по колонке TG message sent == 'yes', если колонка есть
+                if "TG message sent" in log_df.columns:
+                    funnel_counts[stage] = (log_df["TG message sent"].astype(str).str.lower() == "yes").sum()
+                else:
+                    funnel_counts[stage] = 0
+            elif stage == "Passed filters":
+                # Passed filters: только те, у кого TG message sent != 'yes'
+                if "TG message sent" in log_df.columns:
+                    mask_passed = (log_df["Stage"] == stage)
+                    mask_not_sent = (log_df["TG message sent"].astype(str).str.lower() != "yes")
+                    funnel_counts[stage] = (mask_passed & mask_not_sent).sum()
+                else:
+                    funnel_counts[stage] = (log_df["Stage"] == stage).sum()
+            else:
+                funnel_counts[stage] = (log_df["Stage"] == stage).sum()
         percent_stages = ["Viewed", "Filtered (criteria)", "Passed filters", "TG message sent"]
         values = [funnel_counts[stage] for stage in percent_stages]
         labels = []
@@ -168,6 +183,27 @@ try:
         for i, bar in enumerate(bars):
             ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height()/2, str(values[i]), va='center')
         st.pyplot(fig)
+
+        # --- Детальная механика этапов воронки под спойлером ---
+        with st.expander("Как считается каждый этап воронки? (кликните для подробностей)"):
+            st.markdown("""
+            **Механика расчёта этапов воронки:**
+
+            - **Viewed** — Вакансия просмотрена парсером и добавлена в лог. На этом этапе фиксируются все ключевые слова и флаги (релокация, удалёнка, Remote Prohibited и др.).
+            - **Filtered (criteria)** — Вакансия прошла первичную фильтрацию по основным критериям:
+                - Ключевые слова (Visa/Relocation, Anaplan, SAP APO, Planning и др.)
+                - Поддержка релокации/визы
+                - Удалёнка (Remote/Remote Prohibited)
+                - Нет поддержки релокации (No Relocation Support)
+            - **Filtered (already applied)** — Вакансия отфильтрована, т.к. ранее уже была подана заявка (Already Applied = True).
+            - **Passed filters** — Вакансия прошла все фильтры и признана релевантной (по ключевым словам и критериям). Такие вакансии попадают в итоговый список для дальнейших действий.
+            - **TG message sent** — Для релевантной вакансии отправлено уведомление в Telegram.
+
+            **Почему может быть разное количество на этапах?**
+            - На каждом этапе вакансии могут отсекаться по разным причинам (например, не совпали ключевые слова, нет релокации, уже подавались и т.д.).
+            - Все этапы логируются по отдельности: одна и та же вакансия может появиться на нескольких этапах, но в аналитике учитывается только по текущему этапу.
+            - Подробная логика фильтрации описана в README.md (раздел "Логика парсинга и мэтчинга вакансий").
+            """)
     except Exception as e:
         st.info(f"Unable to load funnel from main sheet: {e}")
 
@@ -238,17 +274,21 @@ try:
     filtered_df = filtered_df[filtered_df.get("Stage", "Passed filters") == "Passed filters"] if "Stage" in filtered_df.columns else filtered_df
 
     # --- Heatmap активности по времени ---
-    st.subheader("Активность по времени (день/час)")
+    st.subheader("Активность по времени (день/15-минутный интервал)")
     if 'Timestamp' in filtered_df.columns:
         dt = pd.to_datetime(filtered_df['Timestamp'], errors='coerce')
         if not dt.isnull().all():
             filtered_df['weekday'] = dt.dt.day_name()
-            filtered_df['hour'] = dt.dt.hour
-            heatmap_time = pd.pivot_table(filtered_df, index='weekday', columns='hour', values='Vacancy Title', aggfunc='count', fill_value=0)
+            # Добавляем 15-минутные интервалы
+            filtered_df['quarter'] = dt.dt.hour.astype(str).str.zfill(2) + ':' + (dt.dt.minute // 15 * 15).astype(str).str.zfill(2)
+            heatmap_time = pd.pivot_table(filtered_df, index='weekday', columns='quarter', values='Vacancy Title', aggfunc='count', fill_value=0)
+            # Сортировка дней недели и времени
+            weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            heatmap_time = heatmap_time.reindex(weekday_order)
             import seaborn as sns
-            fig_time, ax_time = plt.subplots(figsize=(12, 4))
+            fig_time, ax_time = plt.subplots(figsize=(16, 5))
             sns.heatmap(heatmap_time, cmap='YlOrRd', ax=ax_time)
-            ax_time.set_title('Heatmap: Активность по дням и часам')
+            ax_time.set_title('Heatmap: Активность по дням и 15-минутным интервалам')
             st.pyplot(fig_time)
         else:
             st.info("Нет данных для построения heatmap активности.")
@@ -308,7 +348,14 @@ try:
         st.info("Нет данных для построения облака навыков.")
 
     # --- User-friendly таблица ---
-    st.dataframe(filtered_df, use_container_width=True, height=420, hide_index=True)
+    if "Job URL" in filtered_df.columns:
+        filtered_df["Job Link"] = filtered_df["Job URL"].apply(lambda x: f"[Открыть вакансию]({x})" if pd.notnull(x) and x else "")
+        display_cols = [col for col in filtered_df.columns if col not in ["Job URL"]]
+        if "Job Link" not in display_cols:
+            display_cols.append("Job Link")
+        st.dataframe(filtered_df[display_cols], use_container_width=True, height=420, hide_index=True)
+    else:
+        st.dataframe(filtered_df, use_container_width=True, height=420, hide_index=True)
 
     # --- График по дням ---
     if 'Timestamp' in filtered_df.columns:
