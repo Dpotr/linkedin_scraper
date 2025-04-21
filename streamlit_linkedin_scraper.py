@@ -101,6 +101,12 @@ try:
 
     # --- Галочка: удалять дубликаты вакансий ---
     remove_duplicates = st.sidebar.checkbox("Remove vacancies duplicates (by Company + Vacancy Title)", value=True)
+    dedup_priority = None
+    if remove_duplicates:
+        dedup_priority = st.sidebar.selectbox(
+            "If duplicates: which to keep?",
+            ["First event (any stage)", "Prefer TG message sent if exists"]
+        )
 
     filtered_df = df[
         df['Company'].isin(company_filter)
@@ -110,7 +116,14 @@ try:
         filtered_df = filtered_df[filtered_df['Skills'].apply(lambda x: any(skill in str(x) for skill in skill_filter))]
 
     if remove_duplicates and "Company" in filtered_df.columns and "Vacancy Title" in filtered_df.columns:
-        filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+        if dedup_priority == "First event (any stage)":
+            filtered_df = filtered_df.drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
+        elif dedup_priority == "Prefer TG message sent if exists":
+            # Сначала строки с TG message sent == 'yes', потом остальные, оставить первую
+            filtered_df = filtered_df.sort_values(
+                by=["Company", "Vacancy Title", filtered_df["TG message sent"] == "yes"],
+                ascending=[True, True, False]
+            ).drop_duplicates(subset=["Company", "Vacancy Title"], keep="first")
 
     # --- LIVE ПРОГРЕСС ---
     st.sidebar.markdown("---")
