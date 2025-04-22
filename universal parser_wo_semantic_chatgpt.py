@@ -319,24 +319,35 @@ def batch_log_parser_events_to_sheets(events, credentials_path, sheet_url):
 # ================================
 # Функция прокрутки
 # ================================
-def scroll_until_loaded(driver, pause_time=1, max_consecutive=3):
-    global total_vacancies_checked
-    consecutive = 0
-    prev_count = 0
+def scroll_until_loaded(driver, pause_time=1, max_consecutive=3, wait_timeout=10):
+    """
+    Скроллит страницу вниз до полной загрузки всех вакансий.
+    Ждет появления новых карточек после каждого скролла,
+    чтобы гарантировать, что все вакансии догрузились.
+    """
+    from selenium.webdriver.common.by import By
+    import time
     body = driver.find_element(By.TAG_NAME, "body")
-    # Принудительный PAGE_DOWN на первой странице
     body.send_keys(Keys.PAGE_DOWN)
     time.sleep(pause_time)
-    while consecutive < max_consecutive:
+    prev_count = 0
+    consecutive = 0
+    start_time = time.time()
+    while consecutive < max_consecutive and (time.time() - start_time) < wait_timeout:
         body.send_keys(Keys.PAGE_DOWN)
-        time.sleep(pause_time)
-        current_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
-        logging.debug(f"PAGE_DOWN -> вакансий сейчас: {current_count}")
-        if current_count <= prev_count:
-            consecutive += 1
+        # Ждем появления новых вакансий или таймаута
+        for _ in range(10):
+            current_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
+            if current_count > prev_count:
+                prev_count = current_count
+                consecutive = 0
+                break
+            else:
+                time.sleep(0.3)  # Проверяем каждые 0.3 сек
         else:
-            consecutive = 0
-            prev_count = current_count
+            consecutive += 1
+    # Финальная пауза, чтобы все элементы успели появиться
+    time.sleep(1)
 
 # ================================
 # Обработка вакансий на странице
@@ -346,7 +357,7 @@ def parse_current_page(driver, wait, start_time, config):
     logs_buffer = []
     matching_jobs = []
     try:
-        scroll_until_loaded(driver, pause_time=1, max_consecutive=3)
+        scroll_until_loaded(driver, pause_time=1, max_consecutive=3, wait_timeout=10)
         job_listings = driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable")
         logging.info(f"Найдено вакансий на странице: {len(job_listings)}")
         total_vacancies_checked += len(job_listings)
