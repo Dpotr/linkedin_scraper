@@ -365,22 +365,71 @@ def parse_current_page(driver, wait, start_time, config):
         for i, job in enumerate(job_listings, start=1):
             try:
                 action = ActionChains(driver)
-                # Получаем данные вакансии
+                # --- Улучшенное извлечение даты публикации ДО клика на карточку ---
+                date_text = ""
+                transformed_publish_date = ""
                 try:
-                    job_company_name = job.find_element(By.CSS_SELECTOR, ".artdeco-entity-lockup__subtitle span").text.strip()
+                    date_selectors = [
+                        ".job-search-card__listdate",
+                        ".job-search-card__listdate--new",
+                        ".job-card-container__listed-time",
+                        ".job-card-list__footer-wrapper time",
+                        "time",
+                        "span"
+                    ]
+                    for sel in date_selectors:
+                        try:
+                            elem = job.find_element(By.CSS_SELECTOR, sel)
+                            text = elem.text.strip()
+                            if text and any(x in text.lower() for x in ["ago", "hour", "day", "month", "viewed", "yesterday", "today", "just now"]):
+                                date_text = text
+                                break
+                        except Exception:
+                            continue
+                    if not date_text:
+                        for elem in job.find_elements(By.XPATH, ".//*"):
+                            text = elem.text.strip()
+                            if text and any(x in text.lower() for x in ["ago", "hour", "day", "month", "viewed", "yesterday", "today", "just now"]):
+                                date_text = text
+                                break
                 except Exception as e:
-                    logging.debug(f"Не удалось получить имя компании: {e}")
-                    job_company_name = "Unknown Company"
-                try:
-                    job_title = job.find_element(By.CSS_SELECTOR, ".artdeco-entity-lockup__title span").text.strip()
-                except Exception as e:
-                    try:
-                        job_title = job.find_element(By.CSS_SELECTOR, ".job-card-list__title").text.strip()
-                    except Exception as e2:
-                        logging.debug(f"Не удалось получить заголовок вакансии: {e2}")
-                        job_title = "Title not found"
+                    print(f"[Job Date] Ошибка поиска даты: {e}")
 
-                logging.info(f"Обработка вакансии №{i}: '{job_title}' / {job_company_name}")
+                # --- Преобразование "N days ago" и др. в YYYY-MM-DD ---
+                import re, datetime
+                def parse_relative_date(text, now=None):
+                    if now is None:
+                        now = datetime.datetime.now()
+                    text = text.lower().strip()
+                    if "just now" in text:
+                        return now.date().isoformat()
+                    if "today" in text:
+                        return now.date().isoformat()
+                    if "yesterday" in text:
+                        return (now - datetime.timedelta(days=1)).date().isoformat()
+                    m = re.match(r"(\d+)\s+minute", text)
+                    if m:
+                        return (now - datetime.timedelta(minutes=int(m.group(1)))).date().isoformat()
+                    m = re.match(r"(\d+)\s+hour", text)
+                    if m:
+                        return (now - datetime.timedelta(hours=int(m.group(1)))).date().isoformat()
+                    m = re.match(r"(\d+)\s+day", text)
+                    if m:
+                        return (now - datetime.timedelta(days=int(m.group(1)))).date().isoformat()
+                    m = re.match(r"(\d+)\s+week", text)
+                    if m:
+                        return (now - datetime.timedelta(weeks=int(m.group(1)))).date().isoformat()
+                    m = re.match(r"(\d+)\s+month", text)
+                    if m:
+                        # Приблизительно 30 дней в месяце
+                        return (now - datetime.timedelta(days=30*int(m.group(1)))).date().isoformat()
+                    m = re.match(r"(\d+)\s+year", text)
+                    if m:
+                        return (now - datetime.timedelta(days=365*int(m.group(1)))).date().isoformat()
+                    # Если просто "viewed" или что-то нестандартное, возвращаем пусто
+                    return ""
+                transformed_publish_date = parse_relative_date(date_text, now=datetime.datetime.strptime("2025-04-22T21:35:02+02:00", "%Y-%m-%dT%H:%M:%S%z")) if date_text else ""
+                # Теперь кликаем на карточку, чтобы раскрыть детали
                 action.move_to_element(job).click().perform()
 
                 desc_element = WebDriverWait(driver, 30).until(
@@ -434,6 +483,23 @@ def parse_current_page(driver, wait, start_time, config):
                     job_url = None
                     logging.error(f"[Job URL] Ошибка поиска ссылки: {ex}\nHTML карточки:\n{job.get_attribute('outerHTML')}")
 
+                # Получаем данные вакансии
+                try:
+                    job_company_name = job.find_element(By.CSS_SELECTOR, ".artdeco-entity-lockup__subtitle span").text.strip()
+                except Exception as e:
+                    logging.debug(f"Не удалось получить имя компании: {e}")
+                    job_company_name = "Unknown Company"
+                try:
+                    job_title = job.find_element(By.CSS_SELECTOR, ".artdeco-entity-lockup__title span").text.strip()
+                except Exception as e:
+                    try:
+                        job_title = job.find_element(By.CSS_SELECTOR, ".job-card-list__title").text.strip()
+                    except Exception as e2:
+                        logging.debug(f"Не удалось получить заголовок вакансии: {e2}")
+                        job_title = "Title not found"
+
+                logging.info(f"Обработка вакансии №{i}: '{job_title}' / {job_company_name}")
+
                 # ДО ФИЛЬТРОВ: логируем просмотр вакансии
                 matched_keywords = []
                 for kw in (
@@ -459,6 +525,10 @@ def parse_current_page(driver, wait, start_time, config):
                     "Skills": "",
                     "TG message sent": "",
                     "Matched key words": ", ".join(matched_keywords),
+                    "Search Keyword": config.get("keyword", ""),
+                    "Search Country": config.get("search_country", ""),
+                    "Job Date": date_text or "",
+                    "transformed publish date from description": transformed_publish_date or ""
                 })
 
                 # Определяем флаги соответствия
@@ -497,6 +567,10 @@ def parse_current_page(driver, wait, start_time, config):
                         "Skills": ", ".join(top_skills),
                         "TG message sent": "",
                         "Matched key words": ", ".join(matched_keywords),
+                        "Search Keyword": config.get("keyword", ""),
+                        "Search Country": config.get("search_country", ""),
+                        "Job Date": date_text or "",
+                        "transformed publish date from description": transformed_publish_date or ""
                     })
                     continue
 
@@ -520,6 +594,10 @@ def parse_current_page(driver, wait, start_time, config):
                         "Skills": ", ".join(top_skills),
                         "TG message sent": "",
                         "Matched key words": ", ".join(matched_keywords),
+                        "Search Keyword": config.get("keyword", ""),
+                        "Search Country": config.get("search_country", ""),
+                        "Job Date": date_text or "",
+                        "transformed publish date from description": transformed_publish_date or ""
                     })
                     continue
 
@@ -543,6 +621,10 @@ def parse_current_page(driver, wait, start_time, config):
                     "Skills": ", ".join(top_skills),
                     "TG message sent": "",
                     "Matched key words": ", ".join(matched_keywords),
+                    "Search Keyword": config.get("keyword", ""),
+                    "Search Country": config.get("search_country", ""),
+                    "Job Date": date_text or "",
+                    "transformed publish date from description": transformed_publish_date or ""
                 })
 
                 matched_keywords = []
@@ -566,6 +648,10 @@ def parse_current_page(driver, wait, start_time, config):
                     "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                     "Skills": ", ".join(top_skills),
                     "Matched key words": ", ".join(matched_keywords),
+                    "Search Keyword": config.get("keyword", ""),
+                    "Search Country": config.get("search_country", ""),
+                    "Job Date": date_text or "",
+                    "transformed publish date from description": transformed_publish_date or ""
                 }
                 matching_jobs.append(current_result)
                 running_minutes = (time.perf_counter() - start_time) / 60
@@ -609,6 +695,10 @@ def parse_current_page(driver, wait, start_time, config):
                     "Skills": ", ".join(top_skills),
                     "TG message sent": "yes",
                     "Matched key words": ", ".join(matched_keywords),
+                    "Search Keyword": config.get("keyword", ""),
+                    "Search Country": config.get("search_country", ""),
+                    "Job Date": date_text or "",
+                    "transformed publish date from description": transformed_publish_date or ""
                 })
                 results.append(current_result)
             except Exception as e:
@@ -741,6 +831,10 @@ def run_scraper(config):
                 "Skills": "",
                 "TG message sent": "",
                 "Matched key words": "",
+                "Search Keyword": config.get("keyword", ""),
+                "Search Country": config.get("search_country", ""),
+                "Job Date": "",
+                "transformed publish date from description": ""
             })
             save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)
         finally:
