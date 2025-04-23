@@ -55,7 +55,7 @@ NO_RELOCATION_REQUIREMENTS = [
     "no relocation support", "we do not provide relocation", "no visa sponsorship",
     "relocation not provided", "visa sponsorship unavailable", "relocation assistance not offered",
     "visa sponsorship not included", "no relocation assistance", "we are unable to sponsor visas",
-    "visa sponsorship not possible", "local applicants only", "we cannot provide relocation"
+    "visa sponsorship not possible", "local applicants only", "we cannot provide relocation", "Relocation Assistance Provided: No","no relocation"
 ]
 REMOTE_REQUIREMENTS = [
     "remote", "work from home", "fully remote", "telecommute", "telecommuting", "remote work", "remote position"
@@ -713,7 +713,7 @@ def parse_current_page(driver, wait, start_time, config):
                 })
                 results.append(current_result)
             except Exception as e:
-                logging.error(f"Ошибка при обработке вакансии №{i}: {e}")
+                logging.error(f"Ошибка при обработке вакансии №{i}: {e}", exc_info=True)
                 continue
 
         # --- Google Sheets: запись результатов (batch) ---
