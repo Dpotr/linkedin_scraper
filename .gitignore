@@ -1,5 +1,22 @@
 # Ignore sensitive config files
-
-archive/
 tg_config.json
 google_sheets_credentials.json
+.streamlit/secrets.toml
+
+# Output and data files
+*.xlsx
+*.csv
+*.log
+
+# Development files
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Archive and backup files
+archive/
+*_legacy.py
+*backup*
+*LEGACY*

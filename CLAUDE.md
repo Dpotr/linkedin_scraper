@@ -25,7 +25,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 python "universal parser_wo_semantic_chatgpt.py"
 ```
 
-**Run the Streamlit analytics dashboard:**
+**Run the NEW streamlined job tracker (RECOMMENDED):**
+```bash
+streamlit run job_tracker.py
+```
+
+**Run the old analytics dashboard (LEGACY):**
 ```bash
 streamlit run streamlit_linkedin_scraper.py
 ```
@@ -52,11 +57,18 @@ This is a LinkedIn job scraping and analytics automation system with three main 
 - **Remote work filtering**: Special handling for "Remote Prohibited" flags - jobs are marked but not filtered out completely
 - **Selenium automation**: Uses undetected ChromeDriver with custom Chrome profiles
 
-### Analytics Dashboard (`streamlit_linkedin_scraper.py`)
-- **Interactive web interface**: Streamlit-based dashboard for analyzing scraped job data
-- **Data source**: Reads from Google Sheets (hardcoded URL and credentials path)
-- **Visualizations**: Provides charts, word clouds, and filtering capabilities
-- **Configuration display**: Shows current scraper settings in expandable section
+### Job Tracker Dashboard (`job_tracker.py`) - RECOMMENDED
+- **Streamlined interface**: Focused on job application workflow, not analytics theater
+- **Key features**: Multi-select filters, date ranges, priority scoring, export to CSV
+- **KPIs**: Open jobs, pending follow-ups, response rate tracking
+- **Secure config**: Uses `.streamlit/secrets.toml` for credentials (never commit this file)
+- **Performance**: Single data load with 5-minute caching, no duplicate requests
+- **Data source**: Google Sheets via service account with proper error handling
+
+### Legacy Analytics Dashboard (`streamlit_linkedin_scraper.py`) - DEPRECATED
+- **Issues**: 406 lines, duplicate data loading, over-engineered visualizations
+- **Problems**: No export, single-select filters, mixed languages, hardcoded credentials
+- **Status**: Kept for reference but should use `job_tracker.py` instead
 
 ### Support Scripts
 - `clean_google_sheet_job_urls.py`: Utility for cleaning job URL data in Google Sheets
