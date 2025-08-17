@@ -23,6 +23,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import os  # для shutdown системы
 import json
 import re
+import random
 
 # ================================
 # Настройка логирования
@@ -43,8 +44,27 @@ except Exception as e:
     DEFAULT_TELEGRAM_CHAT_ID = ""
     logging.error(f"Ошибка чтения tg_config.json: {e}")
 
+# Profile Management Configuration
+PROFILES = {
+    "main": r"C:\Users\potre\SeleniumProfileNew",
+    "dummy": r"C:\Users\potre\SeleniumProfileDummy"
+}
+ACTIVE_PROFILE = "dummy"  # Change this to switch profiles
+
+def validate_and_get_profile_path():
+    """Validate profile exists and return path"""
+    profile_path = PROFILES[ACTIVE_PROFILE]
+    if not os.path.exists(profile_path):
+        os.makedirs(profile_path, exist_ok=True)
+        logging.info(f"Created new profile directory: {profile_path}")
+    return profile_path
+
+def get_random_delay(min_sec=2, max_sec=8):
+    """Get random delay for behavioral disguise"""
+    return random.uniform(min_sec, max_sec)
+
 DEFAULT_CHROMEDRIVER_PATH = r"C:\selenium\chromedriver.exe"
-DEFAULT_CHROME_PROFILE_PATH = r"C:\Users\potre\SeleniumProfileNew"
+DEFAULT_CHROME_PROFILE_PATH = validate_and_get_profile_path()
 DEFAULT_CHROME_BINARY_LOCATION = r"C:\Program Files\Google\Chrome Beta\Application\chrome.exe"
 DEFAULT_OUTPUT_FILE_PATH = r"C:\Users\potre\OneDrive\LinkedIn_Automation\companies_usa_remote.xlsx"
 DEFAULT_SEARCH_COUNTRY = "United States"
@@ -329,7 +349,7 @@ def scroll_until_loaded(driver, pause_time=1, max_consecutive=3, wait_timeout=10
     import time
     body = driver.find_element(By.TAG_NAME, "body")
     body.send_keys(Keys.PAGE_DOWN)
-    time.sleep(pause_time)
+    time.sleep(pause_time + get_random_delay(0.5, 2.0))  # Add randomization
     prev_count = 0
     consecutive = 0
     start_time = time.time()
@@ -343,11 +363,11 @@ def scroll_until_loaded(driver, pause_time=1, max_consecutive=3, wait_timeout=10
                 consecutive = 0
                 break
             else:
-                time.sleep(0.3)  # Проверяем каждые 0.3 сек
+                time.sleep(0.3 + random.uniform(0.1, 0.5))  # Randomized check interval
         else:
             consecutive += 1
     # Финальная пауза, чтобы все элементы успели появиться
-    time.sleep(1)
+    time.sleep(get_random_delay(1, 3))  # Random final pause
 
 # ================================
 # Обработка вакансий на странице
@@ -448,7 +468,7 @@ def parse_current_page(driver, wait, start_time, config):
                 )
                 desc_text = ""
                 for _ in range(10):
-                    time.sleep(0.8)
+                    time.sleep(get_random_delay(0.5, 1.5))  # Random delay between job clicks
                     tmp = desc_element.get_attribute("innerText").strip()
                     if len(tmp) > 50:
                         desc_text = tmp.lower()
@@ -799,7 +819,7 @@ def run_scraper(config):
                 f"&location={config['search_country'].replace(' ', '%20')}"
             )
             driver.get(direct_url)
-            time.sleep(3)
+            time.sleep(get_random_delay(2, 5))  # Random delay between pages
             wait = WebDriverWait(driver, 30)
 
             current_page = 1
@@ -818,7 +838,7 @@ def run_scraper(config):
 
                 next_buttons[0].click()
                 current_page += 1
-                time.sleep(3)
+                time.sleep(get_random_delay(2, 5))  # Random delay between pages
 
             elapsed_time = round(time.perf_counter() - start_time, 2)
             save_results_to_file_with_calculations(results, config["output_file_path"], elapsed_time)

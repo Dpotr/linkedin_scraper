@@ -62,11 +62,34 @@ st.markdown("---")
 st.header("Актуальные результаты из Google Sheets")
 try:
     df = read_google_sheet()
+    # === ФИКС: приведение типов для всех потенциально проблемных колонок ===
+    for col in ["Elapsed Time (s)", "Job ID"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    if "Timestamp" in df.columns:
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors='coerce')
+    bool_cols = [
+        "Visa Sponsorship or Relocation",
+        "Anaplan",
+        "SAP APO",
+        "Planning",
+        "No Relocation Support",
+        "Remote",
+        "Remote Prohibited",
+        "Already Applied"
+    ]
+    for col in bool_cols:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.upper().map({"TRUE": True, "FALSE": False})
+    # === END FIX ===
 
     # --- Фильтры для интерактивной аналитики с кнопками Select/Deselect All ---
     st.sidebar.header("Фильтры для аналитики")
-    all_companies = sorted(df['Company'].dropna().unique())
-    all_skills = sorted(set(itertools.chain.from_iterable([s.strip() for s in str(skills).split(",") if s.strip()] for skills in df['Skills'].dropna())))
+    all_companies = sorted(str(c).strip() for c in df['Company'].dropna().unique())
+    all_skills = sorted(set(
+        s.strip() for skills in df['Skills'].dropna()
+        for s in str(skills).split(",") if s.strip()
+    ))
 
     # Фильтр по компаниям (selectbox)
     company_filter = st.sidebar.selectbox("Фильтр по компаниям", options=["Все компании"] + all_companies, index=0, key='company_filter_select')
@@ -134,6 +157,16 @@ try:
         sh = gc.open_by_url(GOOGLE_SHEETS_URL)
         ws = sh.sheet1
         log_df = pd.DataFrame(ws.get_all_records())
+        # === ФИКС: приведение типов для всех потенциально проблемных колонок ===
+        for col in ["Elapsed Time (s)", "Job ID"]:
+            if col in log_df.columns:
+                log_df[col] = pd.to_numeric(log_df[col], errors='coerce')
+        if "Timestamp" in log_df.columns:
+            log_df["Timestamp"] = pd.to_datetime(log_df["Timestamp"], errors='coerce')
+        for col in bool_cols:
+            if col in log_df.columns:
+                log_df[col] = log_df[col].astype(str).str.upper().map({"TRUE": True, "FALSE": False})
+        # === END FIX ===
         stages = [
             "Viewed",
             "Filtered (criteria)",
