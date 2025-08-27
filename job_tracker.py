@@ -10,6 +10,7 @@ import gspread
 from datetime import datetime, timedelta
 import os
 from io import BytesIO
+from config import Config
 
 # Page config
 st.set_page_config(
@@ -18,21 +19,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Configuration
-DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/173Zb-CkHxamDlQ3q7aFD-1Ay3nk6W7hrEq2aD6y4VJ4/edit?usp=sharing"
-DEFAULT_CREDS_PATH = "C:/Users/potre/OneDrive/LinkedIn_Automation/google_sheets_credentials.json"
+# Configuration - using environment variables for security
+# Create .env file based on .env.example with your actual values
 
 @st.cache_resource
 def get_sheets_client():
-    """Get cached Google Sheets client"""
+    """Get cached Google Sheets client with improved error messages."""
     try:
-        creds_path = st.secrets.get("sheets_creds_path", DEFAULT_CREDS_PATH)
+        # Try environment variable first, fall back to secrets for compatibility
+        creds_path = Config.CREDS_PATH or st.secrets.get("sheets_creds_path", None)
+        if not creds_path:
+            st.error("📋 Google Sheets credentials not configured.")
+            st.info("To fix: Add LINKEDIN_CREDS_PATH to your .env file")
+            return None
         if not os.path.exists(creds_path):
-            st.error(f"Credentials file not found: {creds_path}")
+            st.error(f"📁 Credentials file not found: {creds_path}")
+            st.info("To fix: Check the file path in your .env file")
             return None
         return gspread.service_account(filename=creds_path)
+    except FileNotFoundError as e:
+        st.error(f"📁 Configuration file missing: {e}")
+        st.info("To fix: Ensure google_sheets_credentials.json exists")
+        return None
     except Exception as e:
-        st.error(f"Failed to connect to Google Sheets: {e}")
+        st.error(f"❌ Connection failed: {str(e)[:100]}...")
+        st.info("To fix: Check your internet connection and credentials")
         return None
 
 @st.cache_data(ttl=300, show_spinner="Loading job data...")
@@ -101,12 +112,17 @@ def main():
     st.title("📊 LinkedIn Job Tracker")
     st.markdown("Focused on job application workflow - find, filter, export, track.")
     
-    # Load data
-    sheet_url = st.secrets.get("sheet_url", DEFAULT_SHEET_URL)
+    # Load data - try environment variable first, fall back to secrets for compatibility
+    sheet_url = Config.SHEET_URL or st.secrets.get("sheet_url", None)
+    if not sheet_url:
+        st.error("📊 Google Sheet URL not configured")
+        st.info("To fix: Add LINKEDIN_SHEET_URL to your .env file")
+        st.stop()  # Stop execution cleanly
     df = load_jobs(sheet_url)
     
     if df.empty:
-        st.warning("No data loaded. Check your Google Sheets connection.")
+        st.warning("📭 No job data found in the Google Sheet")
+        st.info("This could mean:\n- The sheet is empty\n- Connection issues\n- Wrong sheet URL")
         return
     
     # Sidebar filters
@@ -171,7 +187,7 @@ def main():
         default=['Remote Available', 'No Info'],
         help="Filter by remote work availability"
     )
-    if 'Remote' in df.columns and 'Remote Prohibited' in df.columns:
+    if 'Remote' in df_filtered.columns and 'Remote Prohibited' in df_filtered.columns:
         remote_filter = pd.Series([False] * len(df_filtered), index=df_filtered.index)
         if 'Remote Available' in remote_options:
             remote_filter |= (df_filtered['Remote'] == True)
@@ -180,6 +196,17 @@ def main():
         if 'No Info' in remote_options:
             remote_filter |= ((df_filtered['Remote'] == False) & (df_filtered['Remote Prohibited'] == False))
         df_filtered = df_filtered[remote_filter]
+    
+    # Sidebar transparency section
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Keyword Matching Info"):
+        st.write("**Current Keywords Used:**")
+        st.write("🏠 **Remote:** remote, wfh, hybrid, work from home")
+        st.write("🛂 **Visa:** h1b sponsor, visa sponsorship, relocation")
+        st.write("📊 **Anaplan:** anaplan, hyperion, adaptive insights, fp&a")
+        st.write("🔧 **SAP:** sap apo, sap ibp, sap scm")
+        st.write("📋 **Planning:** supply planning, mrp, demand planning")
+        st.caption("Keywords are automatically matched in job descriptions")
     
     # Key Performance Indicators
     st.markdown("---")
@@ -233,8 +260,11 @@ def main():
     # Prepare display columns
     display_cols = ['Company', 'Vacancy Title', 'Priority', 'Days_Ago', 'Application_Status']
     
-    # Add relevant columns if they exist
-    optional_cols = ['Remote', 'Visa Sponsorship or Relocation', 'Skills']
+    # Add relevant columns if they exist - including transparency columns
+    optional_cols = [
+        'Remote', 'Visa Sponsorship or Relocation', 'Anaplan', 'SAP APO', 'Planning',
+        'Skills', 'Matched key words', 'Stage', 'Filter Config'
+    ]
     for col in optional_cols:
         if col in df_filtered.columns:
             display_cols.append(col)
@@ -260,9 +290,62 @@ def main():
             "Priority": st.column_config.NumberColumn("Priority", help="Auto-calculated priority score"),
             "Days_Ago": st.column_config.NumberColumn("Days Ago", help="Days since job was posted"),
             "Apply_Link": st.column_config.LinkColumn("Job Link", help="Click to open job posting"),
+            "Matched key words": st.column_config.TextColumn("Matched Keywords", help="Specific keywords that triggered this job match", width="medium"),
+            "Stage": st.column_config.TextColumn("Filter Result", help="Why this job passed or failed filters", width="medium"),
+            "Filter Config": st.column_config.TextColumn("Filter Settings", help="Filter configuration used when processing this job", width="large"),
+            "Remote": st.column_config.CheckboxColumn("🏠 Remote", help="Remote work available"),
+            "Visa Sponsorship or Relocation": st.column_config.CheckboxColumn("🛂 Visa", help="Visa sponsorship or relocation assistance"),
+            "Anaplan": st.column_config.CheckboxColumn("📊 Anaplan", help="Anaplan skills mentioned"),
+            "SAP APO": st.column_config.CheckboxColumn("🔧 SAP", help="SAP APO/SCM skills mentioned"),
+            "Planning": st.column_config.CheckboxColumn("📋 Planning", help="Supply chain planning skills mentioned"),
         }
     )
     
+    # Transparency section - show filter analysis
+    if 'Matched key words' in df_filtered.columns or 'Stage' in df_filtered.columns:
+        with st.expander("🔍 Filter Transparency - See Why Jobs Matched/Failed"):
+            if 'Matched key words' in df_filtered.columns:
+                st.subheader("Most Common Matched Keywords")
+                # Extract and count all matched keywords
+                all_keywords = []
+                for keywords in df_filtered['Matched key words'].dropna():
+                    if str(keywords).strip():
+                        all_keywords.extend([kw.strip() for kw in str(keywords).split(',') if kw.strip()])
+                
+                if all_keywords:
+                    from collections import Counter
+                    keyword_counts = Counter(all_keywords)
+                    col_kw1, col_kw2 = st.columns(2)
+                    
+                    with col_kw1:
+                        st.write("**🏠 Location Keywords:**")
+                        location_keywords = [kw for kw, count in keyword_counts.most_common() if any(x in kw.lower() for x in ['remote', 'visa', 'relocation', 'sponsor', 'home', 'hybrid'])]
+                        for kw in location_keywords[:10]:
+                            st.write(f"• {kw} ({keyword_counts[kw]})")
+                    
+                    with col_kw2:
+                        st.write("**💼 Skills Keywords:**")
+                        skill_keywords = [kw for kw, count in keyword_counts.most_common() if any(x in kw.lower() for x in ['anaplan', 'sap', 'planning', 'supply', 'demand', 'mrp', 'erp'])]
+                        for kw in skill_keywords[:10]:
+                            st.write(f"• {kw} ({keyword_counts[kw]})")
+            
+            if 'Stage' in df_filtered.columns:
+                st.subheader("Filter Results Breakdown")
+                stage_counts = df_filtered['Stage'].value_counts()
+                col_stage1, col_stage2 = st.columns(2)
+                
+                with col_stage1:
+                    st.write("**✅ Passed Filters:**")
+                    passed = stage_counts[stage_counts.index.str.contains('Passed', na=False)]
+                    for stage, count in passed.items():
+                        st.write(f"• {stage}: {count}")
+                
+                with col_stage2:
+                    st.write("**❌ Failed Filters:**")
+                    failed = stage_counts[stage_counts.index.str.contains('Filtered', na=False)]
+                    for stage, count in failed.head(5).items():
+                        st.write(f"• {stage}: {count}")
+
     # Footer info
     st.markdown("---")
     col_info1, col_info2 = st.columns(2)

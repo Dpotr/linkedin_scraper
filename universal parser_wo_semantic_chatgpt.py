@@ -68,7 +68,7 @@ DEFAULT_CHROME_PROFILE_PATH = validate_and_get_profile_path()
 DEFAULT_CHROME_BINARY_LOCATION = r"C:\Program Files\Google\Chrome Beta\Application\chrome.exe"
 DEFAULT_OUTPUT_FILE_PATH = r"C:\Users\potre\OneDrive\LinkedIn_Automation\companies_usa_remote.xlsx"
 DEFAULT_SEARCH_COUNTRY = "United States"
-DEFAULT_KEYWORD = "remote job"
+DEFAULT_KEYWORD = "remote job, planning"
 
 # Ключевые слова
 NO_RELOCATION_REQUIREMENTS = [
@@ -105,7 +105,7 @@ KEYWORDS_SAP = [
     "sap supply chain management"
 ]
 KEYWORDS_PLANNING = [
-    "supply planning", "supply chainh planning" "distribution requirements planning", "inventory planning", "production planning",
+    "supply planning", "distribution requirements planning", "inventory planning", "production planning",
     "demand planning", "material requirements planning", "capacity planning", "supply chain planning",
     "logistics planning", "operations planning", "master production scheduling", "forecasting", "s&op",
     "sales and operations planning", "warehouse planning", "network planning", "procurement planning"
@@ -127,18 +127,26 @@ total_vacancies_checked = 0
 # Функция отправки сообщений в Telegram
 # ================================
 def send_telegram_message(bot_token, chat_id, message, job_url=None, images=None):
+    """Send Telegram notification with graceful degradation on failure."""
+    if not bot_token or not chat_id:
+        logging.warning("Telegram not configured, skipping notification")
+        return  # Silently skip if not configured
+    
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     if job_url:
         message += f"\n\n<a href='{job_url}'>Открыть вакансию на LinkedIn</a>"
     data = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+    
     try:
-        resp = requests.post(url, data=data)
+        resp = requests.post(url, data=data, timeout=10)  # Add timeout
         if resp.status_code == 200:
-            logging.info("Сообщение отправлено в Telegram.")
+            logging.info("Telegram message sent successfully")
         else:
-            logging.error(f"Ошибка при отправке сообщения: {resp.text}")
+            logging.warning(f"Telegram API error: {resp.status_code} - continuing without notification")
+    except requests.exceptions.Timeout:
+        logging.warning("Telegram timeout - continuing without notification")
     except Exception as e:
-        logging.error(f"Ошибка подключения к Telegram: {e}")
+        logging.warning(f"Telegram unavailable ({str(e)[:50]}) - continuing without notification")
     
     if images:
         url_photo = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
@@ -260,6 +268,10 @@ def log_parser_event_to_sheets(event_dict, credentials_path, sheet_url, log_shee
     :param log_sheet_name: str - ignored (for compatibility)
     """
     import gspread
+    if not credentials_path or not sheet_url:
+        logging.debug("Google Sheets not configured, skipping log")
+        return  # Silently skip if not configured
+    
     try:
         gc = gspread.service_account(filename=credentials_path)
         sh = gc.open_by_url(sheet_url)
@@ -290,8 +302,11 @@ def log_parser_event_to_sheets(event_dict, credentials_path, sheet_url, log_shee
         # Prepare row to append (align to headers)
         row = [event_dict.get(col, "") for col in headers]
         worksheet.append_row(row, value_input_option='USER_ENTERED')
+    except FileNotFoundError:
+        logging.error(f"Google Sheets credentials file not found: {credentials_path}")
     except Exception as e:
-        logging.error(f"Error logging event to Google Sheets (main sheet): {e}")
+        # Log error but continue - don't crash the scraper
+        logging.warning(f"Could not log to Google Sheets: {str(e)[:100]} - continuing")
 
 # === Batch logging to Google Sheets ===
 def batch_log_parser_events_to_sheets(events, credentials_path, sheet_url):
@@ -605,11 +620,67 @@ def parse_current_page(driver, wait, start_time, config):
                     })
                     continue
 
-                #!!!!!!!!!!!!!!!!!!!!!!!!!!!! Если не прошла по условиям (remote/visa/anaplan/sap/planning)
-                if not ((remote_found or visa_or_relocation) and (anaplan_found or sap_apo_found or planning_found)):
+                # Apply configurable filter logic
+                location_passes = True
+                skills_passes = True
+                
+                # Check location requirements (remote/visa)
+                if config.get("require_remote", True) or config.get("require_visa", True):
+                    if config.get("location_logic", "OR") == "OR":
+                        # At least one location option must be available if enabled
+                        location_options = []
+                        if config.get("require_remote", True):
+                            location_options.append(remote_found)
+                        if config.get("require_visa", True):
+                            location_options.append(visa_or_relocation)
+                        location_passes = any(location_options) if location_options else True
+                    else:  # AND logic
+                        location_passes = True
+                        if config.get("require_remote", True) and not remote_found:
+                            location_passes = False
+                        if config.get("require_visa", True) and not visa_or_relocation:
+                            location_passes = False
+                
+                # Check skills requirement
+                if config.get("require_skills", True):
+                    skills_passes = (anaplan_found or sap_apo_found or planning_found)
+                
+                # Check remote prohibited exclusion
+                if config.get("block_remote_prohibited", False) and remote_prohibited_found:
+                    location_passes = False
+                
+                # Create detailed filter reason for logging
+                filter_details = []
+                if not location_passes:
+                    if config.get("block_remote_prohibited", False) and remote_prohibited_found:
+                        filter_details.append("blocked: remote prohibited")
+                    elif config.get("location_logic", "OR") == "OR":
+                        missing_location = []
+                        if config.get("require_remote", True) and not remote_found:
+                            missing_location.append("remote")
+                        if config.get("require_visa", True) and not visa_or_relocation:
+                            missing_location.append("visa")
+                        if missing_location:
+                            filter_details.append(f"missing location: needs {' OR '.join(missing_location)}")
+                    else:  # AND logic
+                        missing_and = []
+                        if config.get("require_remote", True) and not remote_found:
+                            missing_and.append("remote")
+                        if config.get("require_visa", True) and not visa_or_relocation:
+                            missing_and.append("visa")
+                        if missing_and:
+                            filter_details.append(f"missing location: needs {' AND '.join(missing_and)}")
+                
+                if not skills_passes:
+                    filter_details.append("missing skills: needs Anaplan OR SAP OR Planning")
+                
+                filter_reason = "; ".join(filter_details) if filter_details else "criteria"
+                
+                # Final filter decision
+                if not (location_passes and skills_passes):
                     logs_buffer.append({
                         "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "Stage": "Filtered (criteria)",
+                        "Stage": f"Filtered ({filter_reason})",
                         "Company": job_company_name,
                         "Vacancy Title": job_title,
                         "Visa Sponsorship or Relocation": visa_or_relocation,
@@ -655,7 +726,8 @@ def parse_current_page(driver, wait, start_time, config):
                     "Search Keyword": config.get("keyword", ""),
                     "Search Country": config.get("search_country", ""),
                     "Job Date": date_text or "",
-                    "transformed publish date from description": transformed_publish_date or ""
+                    "transformed publish date from description": transformed_publish_date or "",
+                    "Filter Config": f"Remote:{config.get('require_remote',True)}, Visa:{config.get('require_visa',True)}, Logic:{config.get('location_logic','OR')}, Skills:{config.get('require_skills',True)}, Block:{config.get('block_remote_prohibited',False)}"
                 })
 
                 matched_keywords = []
@@ -948,6 +1020,36 @@ def create_gui():
     repetitive_checkbox = tk.Checkbutton(root, text="Repetitive parsing (бесконечный парсинг)", variable=repetitive_parsing_var)
     repetitive_checkbox.grid(row=9, column=0, columnspan=3, pady=5)
 
+    # === SIMPLE FILTER CONFIGURATION ===
+    tk.Label(root, text="═══ Filter Requirements ═══", font=("Arial", 10, "bold")).grid(row=10, column=0, columnspan=3, pady=(10,0))
+    
+    # Location Requirements
+    require_remote_var = tk.BooleanVar(value=True)
+    require_visa_var = tk.BooleanVar(value=True)
+    require_skills_var = tk.BooleanVar(value=True)
+    location_logic_var = tk.StringVar(value="OR")  # OR means "Remote OR Visa is fine"
+    
+    tk.Label(root, text="Location Requirements:").grid(row=11, column=0, sticky="e", padx=5, pady=2)
+    location_frame = tk.Frame(root)
+    location_frame.grid(row=11, column=1, sticky="w", padx=5, pady=2)
+    
+    tk.Checkbutton(location_frame, text="Accept Remote Jobs", variable=require_remote_var).grid(row=0, column=0, sticky="w")
+    tk.Checkbutton(location_frame, text="Accept Visa Sponsorship Jobs", variable=require_visa_var).grid(row=0, column=1, sticky="w", padx=(20,0))
+    
+    tk.Label(location_frame, text="Logic:").grid(row=0, column=2, padx=(20,5), sticky="e")
+    location_logic_combo = tk.OptionMenu(location_frame, location_logic_var, "OR", "AND")
+    location_logic_combo.config(width=5)
+    location_logic_combo.grid(row=0, column=3, sticky="w")
+    
+    # Skills Requirement
+    tk.Label(root, text="Skills Requirement:").grid(row=12, column=0, sticky="e", padx=5, pady=2)
+    tk.Checkbutton(root, text="Require Technical Skills (Anaplan/SAP/Planning)", variable=require_skills_var).grid(row=12, column=1, sticky="w", padx=5, pady=2)
+    
+    # Block Remote Prohibited
+    block_remote_prohibited_var = tk.BooleanVar(value=False)
+    tk.Label(root, text="Exclusions:").grid(row=13, column=0, sticky="e", padx=5, pady=2)
+    tk.Checkbutton(root, text="Block jobs that prohibit remote work", variable=block_remote_prohibited_var).grid(row=13, column=1, sticky="w", padx=5, pady=2)
+
     def on_start():
         # Получаем пользовательские ключевые слова и разбиваем их по запятым
         config = {
@@ -969,7 +1071,12 @@ def create_gui():
             "remote_prohibited": [kw.strip() for kw in remote_prohibited_var.get().split(",") if kw.strip()],
             "google_sheets_url": google_sheets_url_var.get(),
             "google_sheets_credentials": google_sheets_credentials_var.get(),
-            "repetitive_parsing": repetitive_parsing_var.get()
+            "repetitive_parsing": repetitive_parsing_var.get(),
+            "require_remote": require_remote_var.get(),
+            "require_visa": require_visa_var.get(),
+            "require_skills": require_skills_var.get(),
+            "location_logic": location_logic_var.get(),
+            "block_remote_prohibited": block_remote_prohibited_var.get()
         }
         if not config["output_file_path"]:
             messagebox.showerror("Ошибка", "Укажите путь для сохранения Excel файла.")
@@ -977,7 +1084,7 @@ def create_gui():
         root.destroy()
         start_scraper_thread(config)
 
-    tk.Button(root, text="Start Scraper", command=on_start, bg="green", fg="white").grid(row=18, column=0, columnspan=3, pady=10)
+    tk.Button(root, text="Start Scraper", command=on_start, bg="green", fg="white").grid(row=14, column=0, columnspan=3, pady=10)
     root.mainloop()
 
 if __name__ == "__main__":
