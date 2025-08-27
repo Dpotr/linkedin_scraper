@@ -25,7 +25,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 python "universal parser_wo_semantic_chatgpt.py"
 ```
 
-**Run the enhanced job tracker (RECOMMENDED):**
+**Run the NEW fresh UI dashboard (RECOMMENDED):**
+```bash
+streamlit run streamlit_linkedin_dashboard.py
+```
+
+**Run the enhanced job tracker:**
 ```bash
 streamlit run job_tracker.py
 ```
@@ -42,7 +47,12 @@ streamlit run streamlit_linkedin_scraper.py
 
 **Install dependencies:**
 ```bash
-pip install pandas requests matplotlib openpyxl selenium langdetect undetected-chromedriver sentence-transformers streamlit wordcloud gspread python-dotenv
+pip install pandas requests matplotlib openpyxl selenium langdetect undetected-chromedriver sentence-transformers streamlit wordcloud gspread python-dotenv plotly
+```
+
+**Or use the comprehensive requirements file:**
+```bash
+pip install -r requirements_cv_assistant.txt
 ```
 
 ## Architecture Overview
@@ -60,7 +70,18 @@ This is a LinkedIn job scraping and analytics automation system with three main 
 - **Backwards compatible**: Default settings maintain exact previous behavior
 - **Selenium automation**: Uses undetected ChromeDriver with custom Chrome profiles
 
-### Job Tracker Dashboard (`job_tracker.py`) - **ENHANCED WITH TRANSPARENCY**
+### Fresh UI Analytics Dashboard (`streamlit_linkedin_dashboard.py`) - **NEW RECOMMENDED**
+- **Modern tab-based design**: Clean organization across 5 tabs (Overview, Analytics, Companies & Skills, Data Explorer, Transparency)
+- **Interactive visualizations**: Plotly charts with hover tooltips and interactivity
+- **Enhanced filtering**: Multi-select dropdowns with session state persistence
+- **KPI dashboard**: Key metrics with trend indicators and visual cards
+- **Export functionality**: CSV and Excel export with filtered data
+- **All features preserved**: Maintains ALL 15 original visualizations and data processing
+- **Consistent language**: Full English interface, professional appearance
+- **Performance optimized**: 5-minute data caching, responsive design
+- **User-friendly**: Intuitive navigation, collapsible sections, clear help text
+
+### Job Tracker Dashboard (`job_tracker.py`) - **WORKFLOW FOCUSED**
 - **Streamlined interface**: Focused on job application workflow, not analytics theater
 - **Full transparency**: Shows matched keywords, filter reasons, and configuration used
 - **Enhanced columns**: Anaplan/SAP/Planning checkboxes, detailed filter results
@@ -74,7 +95,7 @@ This is a LinkedIn job scraping and analytics automation system with three main 
 ### Legacy Analytics Dashboard (`streamlit_linkedin_scraper.py`) - DEPRECATED
 - **Issues**: 406 lines, duplicate data loading, over-engineered visualizations
 - **Problems**: No export, single-select filters, mixed languages, hardcoded credentials
-- **Status**: Kept for reference but should use `job_tracker.py` instead
+- **Status**: Kept for reference but should use `streamlit_linkedin_dashboard.py` for analytics
 
 ### Support Scripts & Configuration
 - `config.py`: **NEW** - Centralized configuration management with environment variables
