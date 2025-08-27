@@ -1,6 +1,6 @@
-# Quick Setup Guide
+# LinkedIn Automation Setup Guide v2.4
 
-## 🚀 Get Started in 5 Minutes
+## 🚀 Get Started with Enhanced Filtering in 5 Minutes
 
 ### 1. Install Dependencies
 ```bash
@@ -31,17 +31,51 @@ LINKEDIN_CREDS_PATH=./google_sheets_credentials.json
 python -c "from config import Config; Config.validate(); print('✅ Ready to go!')"
 ```
 
-### 5. Run the System
+### 5. Run the Enhanced System
 ```bash
-# Main scraper (GUI)
+# 🆕 Main scraper with modular filtering (GUI)
 python "universal parser_wo_semantic_chatgpt.py"
 
-# Job tracking dashboard
+# 🔍 Enhanced job tracker with transparency
 streamlit run job_tracker.py
 
-# Analytics dashboard  
+# 📊 Legacy analytics dashboard  
 streamlit run streamlit_linkedin_scraper.py
+
+# 🧪 Test filter logic (validate all combinations)
+python test_filter_logic.py
 ```
+
+## 🎯 NEW: Configuring Modular Filters (v2.4)
+
+When you run the main scraper, you'll see new filter configuration options:
+
+### Filter Configuration GUI
+- ☑ **Accept Remote Jobs** (includes hybrid, wfh, distributed team)
+- ☑ **Accept Visa Sponsorship Jobs** (includes h1b sponsor, relocation)
+- **Logic**: OR/AND dropdown for location requirements  
+- ☑ **Require Technical Skills** (Anaplan/SAP/Planning)
+- ☑ **Block jobs that prohibit remote work**
+
+### Common Filter Strategies
+```
+Remote-only mode:     ☑ Remote, ☐ Visa, ☑ Block onsite-only
+Visa-focus mode:      ☐ Remote, ☑ Visa, ☐ Block onsite-only  
+Flexible (default):   ☑ Remote, ☑ Visa, OR logic
+Skills-optional:      ☑ Location options, ☐ Require skills
+```
+
+### Enhanced Vocabulary (55+ New Keywords)
+The system now recognizes many more job terms:
+- **Remote**: hybrid, wfh, remote-first, distributed team, virtual position
+- **Visa**: h1b sponsor, green card sponsor, immigration assistance  
+- **Skills**: hyperion, adaptive insights, sap ibp, mrp, erp planning
+
+### Transparency Features
+After running scraper, check the job tracker for:
+- **Matched Keywords**: See exactly which terms triggered each match
+- **Filter Results**: Understand why jobs passed/failed
+- **Configuration**: Track which settings were used
 
 ## 🔧 Optional Setup
 

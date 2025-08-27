@@ -1,5 +1,140 @@
 # Changelog
 
+## v2.4 (2025-08-27) - Modular Filtering & Enhanced Transparency
+
+### 🚀 Revolutionary Modular Filtering System
+
+**🎛️ Configurable GUI Controls:**
+- ✨ **NEW**: Replace hardcoded filter logic with simple GUI checkboxes
+- 🏠 **Accept Remote Jobs**: Includes hybrid, wfh, distributed team, etc.
+- 🛂 **Accept Visa Sponsorship Jobs**: Includes h1b sponsor, relocation assistance, etc.  
+- 🔧 **Logic Modes**: OR/AND dropdown for location requirements
+- 📋 **Require Technical Skills**: Toggleable Anaplan/SAP/Planning requirement
+- 🚫 **Block Remote Prohibited**: Optional exclusion of onsite-only jobs
+
+**🎯 Supported Filter Modes:**
+- **Remote-only mode**: Focus only on remote opportunities
+- **Visa-focus mode**: Prioritize visa sponsorship jobs
+- **Flexible location**: Accept either remote OR visa (default)
+- **Strict requirements**: Require both remote AND visa
+- **Skills-optional**: Broader search without skill requirements
+
+### 📚 Enhanced Vocabulary (55+ New Keywords)
+
+**🏠 Remote Keywords (+10):**
+- Added: hybrid, remote-first, distributed team, virtual position, location flexible, work from anywhere, home-based, flexible work arrangement, remote eligible, wfh
+
+**🛂 Visa Keywords (+8):**
+- Added: h1b sponsor, green card sponsor, work authorization provided, immigration assistance, international candidates welcome, global mobility support, visa transfer, tn visa
+
+**📊 Anaplan Keywords (+5):**
+- Added: hyperion, adaptive insights, workday adaptive, epm, fp&a
+
+**🔧 SAP Keywords (+1):**
+- Added: sap ibp (focused addition per user expertise)
+
+**📋 Planning Keywords (+11):**
+- Added: mrp, erp planning, integrated business planning, cpfr, demand sensing, supply chain optimization, inventory optimization, replenishment planning, master data management, production scheduling, aggregate planning
+
+**🚫 Enhanced Exclusions (+13):**
+- Remote prohibited: in-office, office-based, hybrid required, minimum days in office, etc.
+- No relocation: no sponsorship, must have work authorization, domestic candidates only, etc.
+
+### 🔍 Complete Transparency Features
+
+**📊 Enhanced Job Tracker Dashboard:**
+- 📝 **Matched Keywords Column**: Shows exactly which terms triggered each job match
+- 🎯 **Filter Result Column**: Detailed explanations for why jobs passed/failed  
+- ⚙️ **Filter Config Column**: Tracks which filter settings were used
+- 🏠📊🔧 **Enhanced Checkboxes**: Visual indicators for Remote/Visa/Anaplan/SAP/Planning
+- 📈 **Keyword Analysis Section**: Frequency breakdown of matched terms
+- 🔍 **Filter Transparency Expander**: Success/failure rates with detailed reasons
+
+**📋 Enhanced Scraper Logging:**
+- 🔍 **Detailed Filter Reasons**: Specific explanations (e.g., "missing location: needs remote OR visa")
+- 📊 **Filter Configuration Tracking**: Records which settings were active for each job
+- 🎯 **Comprehensive Stage Logging**: Enhanced "Viewed"/"Filtered"/"Passed" tracking
+
+### 🧪 Quality Assurance & Testing
+
+**✅ Comprehensive Validation:**
+- **16 filter combinations tested** against 7 different job scenarios
+- **100% backwards compatibility verified** (default settings match old behavior exactly)
+- **Agent-validated implementation** (code-frustration-assessor approved)
+- **Complete test suite** in `test_filter_logic.py`
+
+**🔧 New Development Tools:**
+- `config.py`: Centralized configuration management
+- `test_filter_logic.py`: Comprehensive filter validation suite
+- `.env.example`: Environment variable template
+- Enhanced error handling and logging
+
+### 🏗️ Technical Improvements
+
+**🔄 Architecture:**
+- Replaced hardcoded boolean logic with modular, configurable system
+- Maintained exact backwards compatibility (tested extensively)
+- Added comprehensive logging with filter reasoning
+- Enhanced GUI with intuitive checkbox controls
+
+**📊 Data Flow:**
+- Filter configurations tracked in output data
+- Matched keywords recorded for transparency  
+- Detailed filter reasons logged for debugging
+- Enhanced Streamlit dashboard with full visibility
+
+### 🎯 Business Impact
+
+**💼 Job Search Effectiveness:**
+- **Remote-first professionals**: Can focus only on remote opportunities
+- **International candidates**: Can prioritize visa sponsorship jobs
+- **Flexible searchers**: Can accept either remote or visa options
+- **Skills exploration**: Can disable skill requirements for broader discovery
+- **Transparency seekers**: Can see exactly why each job matched or failed
+
+**⚡ User Experience:**
+- **No code changes needed**: All configuration through GUI
+- **Easy switching**: Change search strategies with checkboxes
+- **Full transparency**: Understand every filter decision
+- **Comprehensive testing**: Confidence in filter behavior
+- **Professional setup**: Non-developer friendly configuration
+
+---
+
+## v3.0 (2024-08-27)
+
+### Major Refactoring & Security Improvements
+
+#### Phase 1: Cleanup (Completed)
+- ✅ Removed entire `/archive/` directory (9 legacy files, ~4,000 lines of dead code)
+- ✅ Deleted empty `clean_google_sheet_job_urls.py` file
+- ✅ Removed duplicate `tg_config - Copy.json` file
+- ✅ Eliminated security risks from hardcoded credentials in legacy files
+
+#### Phase 2: Code Quality Improvements (Completed)
+- ✅ **Security**: Created centralized `config.py` using environment variables
+- ✅ **Configuration**: Added `.env.example` for documentation, moved all credentials to `.env`
+- ✅ **Code Cleanup**: Removed 7 duplicate import statements from `streamlit_linkedin_scraper.py`
+- ✅ **Compatibility**: Maintained backward compatibility with st.secrets
+
+#### Phase 3: Error Handling Improvements (Completed)
+- ✅ Added user-friendly error messages with clear fix instructions (with emojis)
+- ✅ Implemented graceful degradation for Telegram and Google Sheets failures
+- ✅ Added timeout to external API calls
+- ✅ Created `setup_logging.py` for error tracking and analysis
+
+### Impact
+- **Security**: No more hardcoded credentials visible in code
+- **Maintainability**: Reduced codebase by ~4,000 lines
+- **User Experience**: Clear error messages with actionable fixes
+- **Stability**: System continues working even with partial failures
+
+### Files Created
+- `config.py` - Centralized configuration management
+- `.env.example` - Configuration template
+- `setup_logging.py` - Simple error logging
+- `REFACTORING_PLAN.md` - Future improvement roadmap
+
 ## v2.3 (2025-04-22)
 
 ### Major Features & Improvements

@@ -1,161 +1,333 @@
-# LinkedIn Scraper V 2.2
+# LinkedIn Job Automation System v2.4
 
-**LinkedIn Scraper** — это мощный инструмент для автоматизированного поиска, анализа и сбора вакансий с LinkedIn с поддержкой семантического поиска, аналитики и отправки результатов в Telegram.
-
----
-
-## Changelog
-
-Полный список изменений см. в файле [CHANGELOG.md](CHANGELOG.md)
-
-- **v2.3 (2025-04-21):**
-    - Надёжное извлечение Job URL для всех карточек LinkedIn: поддержка любых вариантов структуры карточки, универсальный селектор, автоматическое преобразование относительных ссылок в абсолютные.
-    - Теперь в Excel, Google Sheets, Telegram и Streamlit всегда отображается корректная ссылка на вакансию.
-    - Улучшено логирование ошибок поиска ссылки: если структура карточки изменилась, HTML сохраняется в лог для быстрой диагностики.
-    - См. подробности в CHANGELOG.md
-- **v2.2 (2025-04-21):**
-    - Улучшена логика парсинга: теперь для каждой вакансии логируются ВСЕ этапы (Viewed, Filtered, Passed filters, TG message sent) отдельными строками. Все ключевые флаги (включая Remote Prohibited) фиксируются для каждой вакансии на каждом этапе.
-    - Новая логика: вакансии с флагом "Remote Prohibited" не отсекаются, а отмечаются для аналитики и информирования. Вся аналитика строится по этим флагам, но ни одна релевантная вакансия (например, с визой/релокацией) не пропускается.
-    - Весь процесс выбора мэтчей по вакансиям стал полностью прозрачным: в Google Sheets и Excel для каждой вакансии и этапа видны все критерии и matched key words.
-    - Улучшена документация, обновлён README (см. ниже).
-    - См. подробности в CHANGELOG.md
-- **v2.1 (2025-04-21):**
-    - Все этапы вакансий (Viewed, Filtered, Passed filters, TG message sent) логируются отдельными строками в основной вкладке Google Sheets, все колонки всегда заполнены
-    - Добавлена колонка 'TG message sent' для отслеживания отправки уведомлений в Telegram
-    - В дашборде Streamlit добавлен чекбокс для удаления дубликатов вакансий (по Company + Vacancy Title)
-    - Вся аналитика и воронка строятся по колонке Stage из основного листа
-    - Оптимизация под лимиты Google Sheets API (всё в одном листе)
-    - См. подробности в CHANGELOG.md
-- **v2.0 (2025-04-21):**
-    - Новый Streamlit-дэшборд с интерактивными фильтрами (компании, вакансии, навыки), кнопками Select/Deselect All и облаком тегов (skills tag cloud)
-    - Улучшенная аналитика: все графики строятся по отфильтрованным данным
-    - Проверка дубликатов при экспорте в Google Sheets по ключу "Vacancy Title - Company"
-    - Heatmap и облако тегов теперь используют колонку Skills
-    - Оптимизация скорости и стабильности, улучшенные сообщения об ошибках
-    - См. подробности в CHANGELOG.md
+**LinkedIn Job Automation** — мощная система для автоматизированного поиска, анализа и отслеживания вакансий LinkedIn с модульной системой фильтрации, расширенным словарем и полной прозрачностью процесса отбора.
 
 ---
 
-## Возможности
+## 🚀 What's New in v2.4 - Modular Filtering & Transparency
 
-- Поиск вакансий по ключевым словам (в том числе: удалёнка, Anaplan, SAP, планирование и др.)
-- Семантический анализ описаний вакансий с помощью Sentence Transformers
-- Сбор и анализ данных в Excel и Google Sheets
-- Автоматическая отправка уведомлений и графиков в Telegram
-- Графический интерфейс (Tkinter) для удобного запуска и настройки
-- Поддержка различных сценариев фильтрации (релокация, удалёнка, опыт, навыки и пр.)
-- Встроенные инструменты аналитики (графики распределения, p-chart, анализ навыков и "красных флагов", Streamlit dashboard)
-- Гибкая настройка через параметры интерфейса
+**Revolutionary Filtering System & Enhanced Vocabulary**
 
-## Логика парсинга и мэтчинга вакансий
+- ✨ **Modular Filtering**: Configurable GUI checkboxes replace hardcoded logic
+- 📚 **Enhanced Vocabulary**: 55+ new keywords (hybrid, h1b sponsor, sap ibp, mrp, etc.)
+- 🔍 **Complete Transparency**: See exactly which keywords matched and why jobs passed/failed
+- 🎯 **Filter Modes**: Remote-only, Visa-focus, Flexible, Skills-optional modes
+- ✅ **100% Backwards Compatible**: Default settings maintain existing behavior
+- 🧪 **Comprehensive Testing**: All filter combinations validated with test suite
 
-1. **Загрузка страницы с вакансиями** — скрипт скроллит страницу до полной загрузки всех карточек.
-2. **Извлечение информации** — для каждой вакансии извлекается название, компания, описание, ссылка и т.д.
-3. **Проверка по ключевым словам** — для каждой вакансии анализируется наличие ключевых слов по категориям:
-    - Visa/Relocation (KEYWORDS_VISA)
-    - Anaplan (KEYWORDS_ANAPLAN)
-    - SAP APO (KEYWORDS_SAP)
-    - Planning (KEYWORDS_PLANNING)
-    - No Relocation Support (NO_RELOCATION_REQUIREMENTS)
-    - Remote (REMOTE_REQUIREMENTS)
-    - Remote Prohibited (REMOTE_PROHIBITED)
-4. **Логирование этапа "Viewed"** — для каждой вакансии логируются найденные ключевые слова и значения всех критериев (флаги True/False) в Google Sheets/Excel.
-5. **Фильтрация** — вакансии проходят фильтры:
-    - Если уже подавались (Already Applied) — логируется этап "Filtered (already applied)"
-    - Если не прошла по основным условиям (например, нет remote/relocation и нет ключевых навыков) — этап "Filtered (criteria)"
-    - Если вакансия релевантна — этап "Passed filters"
-6. **Remote Prohibited** — если в описании есть фразы из REMOTE_PROHIBITED, вакансия не отсекается, а только отмечается и попадает в аналитику.
-7. **Matched key words** — для каждой вакансии сохраняется строка с совпавшими ключевыми словами.
-8. **Отправка в Telegram** — для релевантных вакансий отправляется уведомление с аналитикой.
-9. **Вся аналитика (Streamlit)** — строится по всем этапам и флагам, включая "Remote Prohibited".
+Full changelog: [CHANGELOG.md](CHANGELOG.md)
 
-## Структура проекта
+---
 
-- `universal parser_new_preprod(semantic_catgpt).py` — основной скрипт с поддержкой семантического поиска (рекомендуется для использования)
-- `universal parser_wo_semantic_claude.py` — версия скрипта без семантического поиска, но с расширенными аналитическими функциями
-- `universal parser_wo_semantic_chatgpt.py` — облегчённая версия без семантики
-- `streamlit_linkedin_scraper.py` — интерактивный дашборд аналитики (Streamlit)
-- `archive/` — архивные или вспомогательные файлы
-- `companies_usa_remote.xlsx` — пример выходного файла с результатами
-- `README.md` — описание проекта
-- `CHANGELOG.md` — история изменений
+## 🔥 Key Features
 
-## Установка
+**✨ Modular Filtering System**
+- 🎛️ **GUI Configuration**: Simple checkboxes for filter setup (no code changes needed)
+- 🏠 **Remote Options**: Accept remote jobs (remote, hybrid, wfh, distributed team)
+- 🛂 **Visa Options**: Accept visa sponsorship jobs (h1b sponsor, relocation assistance) 
+- 📋 **Skills Options**: Require Anaplan/SAP/Planning or make optional
+- 🚫 **Exclusions**: Block onsite-only jobs
+- 🔧 **Logic Modes**: AND/OR logic between location requirements
 
-1. **Клонируйте репозиторий:**
-   ```sh
-   git clone https://github.com/Dpotr/linkedin_scraper.git
-   cd linkedin_scraper
-   ```
+**📚 Enhanced Vocabulary (55+ New Keywords)**
+- 🏠 **Remote**: hybrid, wfh, remote-first, distributed team, virtual position
+- 🛂 **Visa**: h1b sponsor, green card sponsor, immigration assistance, tn visa
+- 📊 **Anaplan**: hyperion, adaptive insights, workday adaptive, epm, fp&a
+- 🔧 **SAP**: sap ibp (focused addition)
+- 📋 **Planning**: mrp, erp planning, cpfr, demand sensing, supply chain optimization
 
-2. **Создайте виртуальное окружение и активируйте его:**
-   ```sh
-   python -m venv venv
-   venv\Scripts\activate    # для Windows
-   ```
+**🔍 Complete Transparency**
+- 📝 **Matched Keywords**: See exactly which words triggered each job match
+- 🎯 **Filter Reasons**: Detailed explanations for why jobs passed/failed
+- ⚙️ **Config Tracking**: Know which filter settings were used for each job
+- 📊 **Keyword Analysis**: Most common matched terms and filter success rates
 
-3. **Установите зависимости:**
-   ```sh
-   pip install -r requirements.txt
-   ```
-   или вручную:
-   ```sh
-   pip install pandas requests matplotlib openpyxl selenium langdetect undetected-chromedriver sentence-transformers streamlit wordcloud
-   ```
+**🚀 Core Capabilities**  
+- Intelligent job search with configurable multi-category filtering
+- Real-time data collection in Excel and Google Sheets
+- Automated Telegram notifications with analytics charts
+- User-friendly Tkinter GUI for easy configuration
+- Enhanced Streamlit dashboards with filter transparency
+- Comprehensive logging and error handling
 
-4. **Скачайте и установите ChromeDriver**  
-   [Инструкция](https://chromedriver.chromium.org/downloads)  
-   Укажите путь до chromedriver в интерфейсе или настройках скрипта.
+## 🔄 Job Processing Pipeline (NEW Modular System)
 
-## Быстрый старт
+### 1. **Page Loading & Scrolling**
+- Script auto-scrolls LinkedIn pages until all job cards are loaded
+- Smart pagination handling with random delays for stealth
 
-1. Запустите основной скрипт:
-   ```sh
-   python "universal parser_new_preprod(semantic_catgpt).py"
-   ```
-2. Для аналитики — запустите дашборд:
-   ```sh
-   streamlit run streamlit_linkedin_scraper.py
-   ```
-3. В графическом интерфейсе укажите параметры поиска, путь к профилю Chrome, токен Telegram-бота, ID чата и другие опции.
-4. Нажмите "Start Scraper".
+### 2. **Data Extraction**  
+- Job title, company, description, URL, publish date extraction
+- Enhanced publish date parsing (supports "X days ago", "yesterday", etc.)
 
-## Конфигурация и безопасность
+### 3. **🆕 Configurable Keyword Matching**
+Enhanced vocabulary across all categories:
+- **Remote** (17 keywords): remote, hybrid, wfh, distributed team, virtual position, etc.
+- **Visa** (21 keywords): h1b sponsor, green card sponsor, immigration assistance, etc.  
+- **Anaplan** (17 keywords): anaplan, hyperion, adaptive insights, fp&a, etc.
+- **SAP** (12 keywords): sap apo, sap ibp, sap scm, etc.
+- **Planning** (28 keywords): mrp, supply planning, demand sensing, cpfr, etc.
 
-- Все параметры (страна, ключевые слова, путь к Excel, токен Telegram, путь к ChromeDriver и профилю) настраиваются через GUI.
-- Для семантического поиска требуется интернет для загрузки модели Sentence Transformers (кэшируется на диск).
-- **tg_config.json** и **google_sheets_credentials.json** — содержат приватные ключи и токены. **Никогда не выкладывайте их в публичный репозиторий!** Добавьте их в .gitignore, если делаете проект публичным.
+### 4. **Enhanced Logging Pipeline** 
+Each job goes through detailed stage logging:
+- **"Viewed"**: All jobs with matched keywords recorded
+- **"Filtered (already applied)"**: Previously applied jobs
+- **"Filtered (reason)"**: Failed jobs with specific reasons (e.g. "missing location: needs remote OR visa")
+- **"Passed filters"**: Successful jobs with filter config tracking
+
+### 5. **🆕 Modular Filter Logic**
+Configurable through GUI checkboxes:
+- **Location Requirements**: Remote AND/OR Visa sponsorship (configurable logic)
+- **Skills Requirements**: Anaplan/SAP/Planning (can be disabled)
+- **Exclusions**: Block remote-prohibited jobs (optional)
+- **Transparency**: Every decision logged with detailed reasoning
+
+### 6. **Output & Analytics**
+- **Excel/Google Sheets**: Complete data with filter transparency
+- **Telegram**: Smart notifications with charts for relevant jobs
+- **Streamlit Dashboard**: Enhanced transparency showing matched keywords and filter reasons
+
+### 7. **🔍 New Transparency Features**
+- **Matched Keywords**: Exact terms that triggered each job match
+- **Filter Config**: Settings used when processing each job  
+- **Stage Reasons**: Detailed explanations for filter decisions
+- **Keyword Analysis**: Most common matched terms and success rates
+
+## 📁 Project Structure
+
+### Core Components
+- `universal parser_wo_semantic_chatgpt.py` — **Main scraper** with Tkinter GUI
+- `job_tracker.py` — **Streamlined dashboard** for job tracking (recommended)
+- `streamlit_linkedin_scraper.py` — **Analytics dashboard** with detailed visualizations
+- `config.py` — **Centralized configuration** management
+
+### Configuration
+- `.env` — **Your credentials** (create from .env.example, never commit)
+- `.env.example` — **Configuration template** with all required variables
+- `google_sheets_credentials.json` — Google Sheets API credentials
+- `tg_config.json` — Telegram configuration (legacy fallback)
+
+### Data & Logs
+- `companies_usa_remote.xlsx` — Output file with job data
+- `logs/` — Error logs for monitoring and debugging
+- `setup_logging.py` — Simple logging configuration
+
+### Documentation
+- `README.md` — This file
+- `CHANGELOG.md` — Version history
+- `REFACTORING_PLAN.md` — Future improvement roadmap
+
+## 🔧 Installation & Setup
+
+### 1. Clone Repository
+```bash
+git clone https://github.com/Dpotr/linkedin_scraper.git
+cd LinkedIn_Automation
+```
+
+### 2. Create Virtual Environment
+```bash
+python -m venv venv
+venv\Scripts\activate    # Windows
+# or
+source venv/bin/activate  # Linux/Mac
+```
+
+### 3. Install Dependencies
+```bash
+pip install pandas requests matplotlib openpyxl selenium langdetect undetected-chromedriver streamlit wordcloud gspread python-dotenv
+```
+
+### 4. Configure Environment Variables
+
+**Create your configuration file:**
+```bash
+cp .env.example .env
+```
+
+**Edit `.env` with your actual values:**
+```bash
+# Google Sheets Configuration
+LINKEDIN_SHEET_URL=your_google_sheet_url_here
+LINKEDIN_CREDS_PATH=path/to/google_sheets_credentials.json
+
+# Telegram Configuration (optional)
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+
+# Chrome Configuration
+CHROME_PROFILE_PATH=path/to/selenium/profile
+CHROME_BINARY_PATH=path/to/chrome.exe
+CHROMEDRIVER_PATH=path/to/chromedriver.exe
+
+# Output Configuration
+OUTPUT_FILE_PATH=path/to/output/companies_usa_remote.xlsx
+```
+
+### 5. Set Up Google Sheets API
+1. Create a Google Cloud Project
+2. Enable Google Sheets API
+3. Create service account credentials
+4. Download JSON file as `google_sheets_credentials.json`
+5. Share your Google Sheet with the service account email
+
+### 6. Install ChromeDriver
+- Download from [ChromeDriver](https://chromedriver.chromium.org/downloads)
+- Add path to your `.env` file
+
+## 🚀 Quick Start
+
+### 1. Run the Enhanced Scraper
+```bash
+python "universal parser_wo_semantic_chatgpt.py"
+```
+**🆕 NEW Features in GUI:**
+- ☑ **Accept Remote Jobs** (includes hybrid, wfh, distributed team)
+- ☑ **Accept Visa Sponsorship Jobs** (includes h1b sponsor, relocation)  
+- **Logic**: OR/AND dropdown for location requirements
+- ☑ **Require Technical Skills** (Anaplan/SAP/Planning)
+- ☑ **Block remote prohibited jobs** (filters out onsite-only)
+
+**Filter Modes You Can Set:**
+- **Remote-only**: Uncheck visa, check remote + block onsite-only
+- **Visa-focus**: Uncheck remote, check visa only
+- **Flexible**: Both checked with OR logic (default)
+- **Skills-optional**: Uncheck skills for broader search
+
+### 2. View Enhanced Job Data
+
+**🔍 Job Tracker with Full Transparency (Recommended):**
+```bash
+streamlit run job_tracker.py
+```
+**🆕 NEW Transparency Features:**
+- 📝 **Matched Keywords** column shows exact triggers  
+- 🎯 **Filter Result** column explains decisions
+- ⚙️ **Filter Config** shows settings used
+- 📊 **Keyword Analysis** section with frequency breakdown
+- 🏠📊🔧 Enhanced skill category checkboxes
+
+**Detailed Analytics Dashboard:**
+```bash
+streamlit run streamlit_linkedin_scraper.py
+```
+- Legacy dashboard with comprehensive visualizations
+- Funnel analysis, skills heatmaps, word clouds
+
+### 3. Test Your Filter Logic
+```bash
+python test_filter_logic.py
+```
+- **Tests all 16 filter combinations**
+- **Validates backwards compatibility** (100% tested)
+- **Shows filter behavior** for different job scenarios
+
+### 4. Validate Configuration
+```bash
+python -c "from config import Config; Config.validate(); print('✅ Configuration valid')"
+```
+
+## 🔒 Security & Configuration
+
+### Environment Variables (Secure)
+All sensitive configuration is now handled through environment variables in `.env` files:
+
+- ✅ **Secure**: Credentials never appear in code
+- ✅ **Flexible**: Easy to change without code modification  
+- ✅ **Documented**: Clear examples in `.env.example`
+
+### Legacy Configuration (Backward Compatible)
+The system still supports the old configuration files as fallback:
+- `tg_config.json` — Telegram credentials
+- `google_sheets_credentials.json` — Google Sheets API credentials
+
+### Security Best Practices
+- ❌ **Never commit** `.env`, `tg_config.json`, or `google_sheets_credentials.json`
+- ✅ **Always use** `.env.example` for documentation
+- ✅ **Keep** sensitive files in `.gitignore`
+- ✅ **Rotate** credentials periodically
 
 ## Выходные данные
 
 - Результаты сохраняются в Excel-файл.
 - В Telegram отправляются текстовые уведомления и аналитические графики (bar chart, p-chart, skills chart).
 
-## Требования
+## 📋 Requirements
 
-- Python 3.8+
-- Google Chrome и соответствующий ChromeDriver
-- Аккаунт Telegram для получения уведомлений
+- **Python 3.8+**
+- **Google Chrome** and matching ChromeDriver
+- **Google Sheets API** credentials (for data storage)
+- **Telegram Bot** (optional, for notifications)
 
-## Безопасность
+## 🔍 Error Monitoring
 
-- Не храните свои токены и личные данные в публичных репозиториях!
-- Добавьте файл `.gitignore` для исключения секретов, кэша, виртуальных окружений и выходных данных.
+The system includes built-in error tracking:
 
-## Пример .gitignore
+```bash
+# Enable error logging
+python setup_logging.py
 
+# Check logs
+ls logs/
+tail -f logs/errors_$(date +%Y%m%d).log
 ```
-venv/
-__pycache__/
-*.pyc
-*.xlsx
-*.log
-*.env
-*.db
-.DS_Store
-archive/
-tg_config.json
-google_sheets_credentials.json
+
+Logs help identify:
+- Configuration issues
+- API connection problems  
+- Scraping failures
+- Performance bottlenecks
+
+## 🛡️ Security Notes
+
+- 🔒 **Never commit** sensitive files to repositories
+- ✅ **Use** `.env` files for all credentials
+- ✅ **Rotate** API keys and tokens regularly
+- ✅ **Monitor** logs for unauthorized access attempts
+- ✅ **Keep** dependencies updated for security patches
+
+### Files Already in .gitignore
+```
+.env                           # Your credentials
+logs/                          # Error logs  
+*.xlsx                         # Output data
+google_sheets_credentials.json # API credentials
+tg_config.json                # Telegram config
+.streamlit/secrets.toml       # Streamlit secrets
+```
+
+## 📋 Environment Variables Reference
+
+### Required Variables
+```bash
+# Google Sheets Integration
+LINKEDIN_SHEET_URL=https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
+LINKEDIN_CREDS_PATH=/path/to/google_sheets_credentials.json
+```
+
+### Optional Variables
+```bash
+# Telegram Notifications
+TELEGRAM_BOT_TOKEN=1234567890:ABCDEF...
+TELEGRAM_CHAT_ID=123456789
+
+# Chrome Automation
+CHROME_PROFILE_PATH=/path/to/selenium/profile
+CHROME_BINARY_PATH=/path/to/chrome.exe
+CHROMEDRIVER_PATH=/path/to/chromedriver.exe
+
+# Output Files
+OUTPUT_FILE_PATH=/path/to/output/companies_usa_remote.xlsx
+```
+
+### Configuration Validation
+Test your setup:
+```bash
+# Validate required variables
+python -c "from config import Config; Config.validate(['LINKEDIN_SHEET_URL', 'LINKEDIN_CREDS_PATH'])"
+
+# Check all configuration
+python -c "from config import Config; print(Config.get_all())"
 ```
 
 ## Лицензия
