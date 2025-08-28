@@ -123,6 +123,13 @@ ALL_KEYWORDS = (
 results = []
 total_vacancies_checked = 0
 
+# Cycle tracking variables
+cycle_number = 1
+cycle_parsed_jobs = 0
+cycle_new_matches = 0
+cycle_matched_jobs = []  # List of {company, position} dicts for current cycle
+total_matches_all_time = 0
+
 # ================================
 # Функция отправки сообщений в Telegram
 # ================================
@@ -161,6 +168,52 @@ def send_telegram_message(bot_token, chat_id, message, job_url=None, images=None
                     logging.error(f"Ошибка при отправке изображения: {resp_img.text}")
             except Exception as e:
                 logging.error(f"Ошибка подключения к Telegram при отправке изображения: {e}")
+
+# ================================
+# Cycle Summary Functions
+# ================================
+def generate_cycle_summary_message():
+    """Generate cycle summary message with matched jobs list"""
+    global cycle_number, cycle_parsed_jobs, cycle_new_matches, total_matches_all_time, cycle_matched_jobs
+    
+    # Build the main summary
+    message_lines = [
+        f"🔄 Cycle #{cycle_number} Completed",
+        "",
+        "📊 Statistics:",
+        f"• Parsed jobs: {cycle_parsed_jobs}",
+        f"• New matches this cycle: {cycle_new_matches}",
+        f"• Total matches since start: {total_matches_all_time}",
+    ]
+    
+    # Add matched jobs list if any
+    if cycle_matched_jobs:
+        message_lines.extend(["", "✅ Matched Jobs:"])
+        # Limit to 20 jobs to avoid message being too long
+        display_jobs = cycle_matched_jobs[:20]
+        for i, job in enumerate(display_jobs, 1):
+            job_line = f"{i}. {job['company']} - {job['position']}"
+            # Truncate very long lines
+            if len(job_line) > 100:
+                job_line = job_line[:97] + "..."
+            message_lines.append(job_line)
+        
+        # Add note if more jobs exist
+        if len(cycle_matched_jobs) > 20:
+            message_lines.append(f"...and {len(cycle_matched_jobs) - 20} more")
+    else:
+        message_lines.extend(["", "No matches found in this cycle."])
+    
+    return "\n".join(message_lines)
+
+def reset_cycle_counters():
+    """Reset cycle-specific counters for new cycle"""
+    global cycle_parsed_jobs, cycle_new_matches, cycle_matched_jobs, cycle_number
+    cycle_parsed_jobs = 0
+    cycle_new_matches = 0
+    cycle_matched_jobs = []
+    cycle_number += 1
+    logging.info(f"Starting cycle #{cycle_number}")
 
 # ================================
 # Работа с Excel
@@ -352,37 +405,156 @@ def batch_log_parser_events_to_sheets(events, credentials_path, sheet_url):
         logging.error(f"Error batch logging events to Google Sheets: {e}")
 
 # ================================
-# Функция прокрутки
+# Функция прокрутки с захватом вакансий
 # ================================
-def scroll_until_loaded(driver, pause_time=1, max_consecutive=3, wait_timeout=10):
+def scroll_until_loaded_linkedin_specific(driver, max_attempts=20, pause_time=1.5):
     """
-    Скроллит страницу вниз до полной загрузки всех вакансий.
-    Ждет появления новых карточек после каждого скролла,
-    чтобы гарантировать, что все вакансии догрузились.
+    LINKEDIN-SPECIFIC FIX: Targets LinkedIn's specific lazy loading mechanism.
+    Forces the job list container to load all content by scrolling to specific trigger points.
     """
     from selenium.webdriver.common.by import By
     import time
-    body = driver.find_element(By.TAG_NAME, "body")
-    body.send_keys(Keys.PAGE_DOWN)
-    time.sleep(pause_time + get_random_delay(0.5, 2.0))  # Add randomization
+    
+    logging.info("Starting LinkedIn-specific scrolling...")
+    
+    # Find the specific LinkedIn job list container - EXPANDED SELECTORS
+    job_list_selectors = [
+        ".jobs-search-results-list",
+        ".jobs-search__results-list", 
+        ".scaffold-layout__list-container",
+        ".jobs-search-results",
+        ".jobs-search-results__list",
+        ".scaffold-layout__list",
+        ".jobs-search-results-list__container",
+        "[data-test-id='jobs-search-results-list']",
+        ".scaffold-layout__list-detail-inner",
+        ".jobs-search__results",
+        ".scaffold-layout-container"
+    ]
+    
+    job_container = None
+    for selector in job_list_selectors:
+        try:
+            job_container = driver.find_element(By.CSS_SELECTOR, selector)
+            logging.info(f"Found job container: {selector}")
+            break
+        except:
+            continue
+    
+    if not job_container:
+        logging.warning("Could not find job container, falling back to body scroll")
+        job_container = driver.find_element(By.TAG_NAME, "body")
+    
     prev_count = 0
-    consecutive = 0
-    start_time = time.time()
-    while consecutive < max_consecutive and (time.time() - start_time) < wait_timeout:
-        body.send_keys(Keys.PAGE_DOWN)
-        # Ждем появления новых вакансий или таймаута
-        for _ in range(10):
-            current_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
-            if current_count > prev_count:
-                prev_count = current_count
-                consecutive = 0
-                break
-            else:
-                time.sleep(0.3 + random.uniform(0.1, 0.5))  # Randomized check interval
+    no_change_count = 0
+    
+    # Strategy 1: Scroll to bottom of job container to force loading
+    try:
+        driver.execute_script("""
+            const container = arguments[0];
+            const scrollHeight = container.scrollHeight || document.documentElement.scrollHeight;
+            
+            // Scroll in increments to trigger lazy loading
+            let currentScroll = 0;
+            const scrollStep = Math.max(400, scrollHeight / 10);
+            
+            const scrollInterval = setInterval(() => {
+                currentScroll += scrollStep;
+                window.scrollTo(0, currentScroll);
+                
+                if (currentScroll >= scrollHeight + 1000) {
+                    clearInterval(scrollInterval);
+                }
+            }, 800);
+            
+            // Also scroll the container itself if it's scrollable
+            if (container.scrollHeight > container.clientHeight) {
+                container.scrollTop = container.scrollHeight;
+            }
+        """, job_container)
+        
+        time.sleep(5)  # Wait for JavaScript scrolling to complete
+        
+    except Exception as e:
+        logging.warning(f"JavaScript scroll failed: {e}")
+    
+    # Strategy 2: Manual step-by-step scrolling with job count monitoring  
+    for attempt in range(max_attempts):
+        current_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
+        
+        if current_count > prev_count:
+            logging.info(f"Found {current_count - prev_count} new jobs (total: {current_count})")
+            prev_count = current_count
+            no_change_count = 0
         else:
-            consecutive += 1
-    # Финальная пауза, чтобы все элементы успели появиться
-    time.sleep(get_random_delay(1, 3))  # Random final pause
+            no_change_count += 1
+        
+        # Stop if no new jobs for several attempts OR we have reasonable count
+        if no_change_count >= 8 or current_count >= 20:
+            logging.info(f"Stopping: no_change_count={no_change_count}, current_count={current_count}")
+            break
+        
+        # Different scrolling strategies based on attempt
+        if attempt < 5:
+            # Initial: Scroll by pixels to trigger loading
+            driver.execute_script(f"window.scrollBy(0, {500 + attempt * 100});")
+        elif attempt < 10:
+            # Mid: Try scrolling to specific job elements
+            try:
+                jobs = driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable")
+                if jobs:
+                    last_job = jobs[-1]
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", last_job)
+                    time.sleep(0.5)
+                    driver.execute_script("window.scrollBy(0, 300);")  # Scroll past it
+            except:
+                driver.execute_script("window.scrollBy(0, 600);")
+        else:
+            # Final: Aggressive scrolling to bottom
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.5)
+            driver.execute_script("window.scrollBy(0, 500);")  # Scroll even further
+        
+        time.sleep(pause_time + get_random_delay(0.3, 0.8))
+    
+    final_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
+    logging.info(f"LINKEDIN SCROLLING COMPLETE: Found {final_count} jobs after {attempt + 1} attempts")
+    
+    # ENHANCED: More aggressive final attempt if we still have few jobs
+    if final_count < 23:  # Increased threshold since we expect ~25 per page
+        logging.warning(f"Moderate job count ({final_count}), trying enhanced scroll...")
+        
+        # Multiple enhanced strategies
+        strategies = [
+            # Strategy 1: Multiple bottom scrolls with pauses
+            lambda: [driver.execute_script("window.scrollTo(0, document.body.scrollHeight + 500 * i);") or time.sleep(0.8) for i in range(8)],
+            # Strategy 2: Scroll to each existing job element
+            lambda: [driver.execute_script("arguments[0].scrollIntoView({block: 'start'});", job) or time.sleep(0.3) for job in driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable")],
+            # Strategy 3: Rapid scroll bursts
+            lambda: [driver.execute_script(f"window.scrollBy(0, {200 + i * 100});") or time.sleep(0.2) for i in range(12)],
+            # Strategy 4: End scroll + key presses
+            lambda: [driver.execute_script("window.scrollTo(0, document.body.scrollHeight);") or time.sleep(0.5) or driver.find_element(By.TAG_NAME, "body").send_keys(Keys.END) or time.sleep(0.5) for _ in range(3)]
+        ]
+        
+        for i, strategy in enumerate(strategies):
+            try:
+                strategy()
+                current_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
+                if current_count > final_count:
+                    logging.info(f"Strategy {i+1} found {current_count - final_count} more jobs (total: {current_count})")
+                    final_count = current_count
+                    if final_count >= 23:  # Good enough
+                        break
+            except Exception as e:
+                logging.debug(f"Strategy {i+1} failed: {e}")
+        
+        final_final_count = len(driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable"))
+        logging.info(f"After enhanced scroll: {final_final_count} jobs (gained: {final_final_count - final_count})")
+    
+    # Final wait for any remaining content
+    time.sleep(get_random_delay(2, 4))
+
+# Helper functions removed - using simpler approach
 
 # ================================
 # Обработка вакансий на странице
@@ -392,10 +564,12 @@ def parse_current_page(driver, wait, start_time, config):
     logs_buffer = []
     matching_jobs = []
     try:
-        scroll_until_loaded(driver, pause_time=1, max_consecutive=3, wait_timeout=10)
+        # LINKEDIN-SPECIFIC FIX: Target LinkedIn's lazy loading mechanism
+        scroll_until_loaded_linkedin_specific(driver, max_attempts=20, pause_time=1.5)
         job_listings = driver.find_elements(By.CSS_SELECTOR, ".job-card-container--clickable")
-        logging.info(f"Найдено вакансий на странице: {len(job_listings)}")
-        total_vacancies_checked += len(job_listings)
+        actual_job_count = len(job_listings)
+        logging.info(f"CAPTURED вакансий на странице: {actual_job_count}")
+        total_vacancies_checked += actual_job_count
         # Используем пользовательские ключевые слова
         keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
         keywords_anaplan = config.get("keywords_anaplan") or KEYWORDS_ANAPLAN
@@ -408,8 +582,17 @@ def parse_current_page(driver, wait, start_time, config):
             keywords_visa + keywords_anaplan + keywords_sap + keywords_planning + no_relocation_requirements + remote_requirements + remote_prohibited
         )
 
+        # SIMPLIFIED: Process jobs with basic error handling
+        processed_jobs = 0
         for i, job in enumerate(job_listings, start=1):
             try:
+                # Basic validation that element is still accessible
+                try:
+                    job.tag_name  # Simple stale element check
+                except Exception:
+                    logging.warning(f"Job element {i} became stale, skipping...")
+                    continue
+                
                 action = ActionChains(driver)
                 # --- Улучшенное извлечение даты публикации ДО клика на карточку ---
                 date_text = ""
@@ -558,6 +741,7 @@ def parse_current_page(driver, wait, start_time, config):
                     "Stage": "Viewed",
                     "Company": job_company_name,
                     "Vacancy Title": job_title,
+                    "Cycle #": cycle_number,
                     "Visa Sponsorship or Relocation": False,
                     "Anaplan": False,
                     "SAP APO": False,
@@ -576,6 +760,9 @@ def parse_current_page(driver, wait, start_time, config):
                     "Job Date": date_text or "",
                     "transformed publish date from description": transformed_publish_date or ""
                 })
+                # Increment cycle parsed jobs counter
+                global cycle_parsed_jobs
+                cycle_parsed_jobs += 1
 
                 # Определяем флаги соответствия
                 remote_found = any(x in desc_text for x in remote_requirements)
@@ -600,6 +787,7 @@ def parse_current_page(driver, wait, start_time, config):
                         "Stage": "Filtered (already applied)",
                         "Company": job_company_name,
                         "Vacancy Title": job_title,
+                        "Cycle #": cycle_number,
                         "Visa Sponsorship or Relocation": visa_or_relocation,
                         "Anaplan": anaplan_found,
                         "SAP APO": sap_apo_found,
@@ -683,6 +871,7 @@ def parse_current_page(driver, wait, start_time, config):
                         "Stage": f"Filtered ({filter_reason})",
                         "Company": job_company_name,
                         "Vacancy Title": job_title,
+                        "Cycle #": cycle_number,
                         "Visa Sponsorship or Relocation": visa_or_relocation,
                         "Anaplan": anaplan_found,
                         "SAP APO": sap_apo_found,
@@ -710,6 +899,7 @@ def parse_current_page(driver, wait, start_time, config):
                     "Stage": "Passed filters",
                     "Company": job_company_name,
                     "Vacancy Title": job_title,
+                    "Cycle #": cycle_number,
                     "Visa Sponsorship or Relocation": visa_or_relocation,
                     "Anaplan": anaplan_found,
                     "SAP APO": sap_apo_found,
@@ -739,6 +929,7 @@ def parse_current_page(driver, wait, start_time, config):
                 current_result = {
                     "Company": job_company_name,
                     "Vacancy Title": job_title,
+                    "Cycle #": cycle_number,
                     "Visa Sponsorship or Relocation": visa_or_relocation,
                     "Anaplan": anaplan_found,
                     "SAP APO": sap_apo_found,
@@ -779,12 +970,21 @@ def parse_current_page(driver, wait, start_time, config):
                     images.append(bar_chart)
                 send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, job_url=job_url, images=images)
                 tg_sent = True
+                # Track matched job for cycle summary
+                global cycle_new_matches, total_matches_all_time, cycle_matched_jobs
+                cycle_new_matches += 1
+                total_matches_all_time += 1
+                # Add to matched jobs list if not already there (avoid duplicates)
+                job_entry = {"company": job_company_name, "position": job_title}
+                if job_entry not in cycle_matched_jobs:
+                    cycle_matched_jobs.append(job_entry)
                 # Update log with TG message sent
                 logs_buffer.append({
                     "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "Stage": "Passed filters",
                     "Company": job_company_name,
                     "Vacancy Title": job_title,
+                    "Cycle #": cycle_number,
                     "Visa Sponsorship or Relocation": visa_or_relocation,
                     "Anaplan": anaplan_found,
                     "SAP APO": sap_apo_found,
@@ -804,10 +1004,14 @@ def parse_current_page(driver, wait, start_time, config):
                     "transformed publish date from description": transformed_publish_date or ""
                 })
                 results.append(current_result)
+                processed_jobs += 1
             except Exception as e:
                 logging.error(f"Ошибка при обработке вакансии №{i}: {e}", exc_info=True)
                 continue
 
+        # Simple validation: log final counts
+        logging.info(f"PAGE COMPLETE: {processed_jobs} jobs processed from {actual_job_count} found")
+        
         # --- Google Sheets: запись результатов (batch) ---
         if config.get("google_sheets_url") and config.get("google_sheets_credentials"):
             batch_log_parser_events_to_sheets(logs_buffer, config["google_sheets_credentials"], config["google_sheets_url"])
@@ -819,10 +1023,18 @@ def parse_current_page(driver, wait, start_time, config):
 # ================================
 def run_scraper(config):
     global results, total_vacancies_checked
+    global cycle_number, cycle_parsed_jobs, cycle_new_matches, cycle_matched_jobs, total_matches_all_time
     results = []
     total_vacancies_checked = 0
+    # Initialize cycle tracking variables
+    cycle_number = 1
+    cycle_parsed_jobs = 0
+    cycle_new_matches = 0
+    cycle_matched_jobs = []
+    total_matches_all_time = 0
     start_time = time.perf_counter()
     repetitive_parsing = config.get("repetitive_parsing", False)
+    logging.info(f"Starting cycle #{cycle_number}")
     while True:
         # Используем пользовательские ключевые слова, если они есть, иначе дефолтные
         keywords_visa = config.get("keywords_visa") or KEYWORDS_VISA
@@ -921,6 +1133,7 @@ def run_scraper(config):
             results.append({
                 "Company": config["keyword"],
                 "Vacancy Title": "",
+                "Cycle #": cycle_number,
                 "Visa Sponsorship or Relocation": False,
                 "Anaplan": False,
                 "SAP APO": False,
@@ -948,6 +1161,21 @@ def run_scraper(config):
                 os.system("shutdown /s /t 30")
         if not repetitive_parsing:
             break
+        
+        # Send cycle summary via Telegram before starting next cycle
+        try:
+            summary_message = generate_cycle_summary_message()
+            send_telegram_message(
+                config["telegram_bot_token"], 
+                config["telegram_chat_id"], 
+                summary_message
+            )
+            logging.info(f"Cycle #{cycle_number} summary sent to Telegram")
+        except Exception as e:
+            logging.warning(f"Failed to send cycle summary: {e}")
+        
+        # Reset cycle counters for new cycle
+        reset_cycle_counters()
         logging.info("Repetitive parsing enabled: restarting from first page...")
         # Здесь можно добавить сброс состояния, если нужно
         # Например, сбросить текущую страницу на 1, обновить драйвер и т.д.
