@@ -63,10 +63,41 @@ def get_random_delay(min_sec=2, max_sec=8):
     """Get random delay for behavioral disguise"""
     return random.uniform(min_sec, max_sec)
 
+def generate_output_filename(country, keyword):
+    """Generate output filename from country and keyword"""
+    import re
+    # More conservative approach - clean and limit inputs
+    safe_country = re.sub(r'[^\w]', '_', country.strip())[:20]
+    safe_keyword = re.sub(r'[^\w]', '_', keyword.strip())[:25]
+    
+    # Ensure meaningful names even with short inputs
+    if not safe_country: safe_country = "country"
+    if not safe_keyword: safe_keyword = "keyword"
+    
+    # Remove consecutive underscores and trim
+    safe_country = re.sub(r'_+', '_', safe_country).strip('_')
+    safe_keyword = re.sub(r'_+', '_', safe_keyword).strip('_')
+    
+    base_dir = r"C:\Users\potre\OneDrive\LinkedIn_Automation"
+    filename = f"{safe_country}_{safe_keyword}_jobs.xlsx"
+    
+    # Validate total path length (Windows limit ~260 chars)
+    full_path = os.path.join(base_dir, filename)
+    if len(full_path) > 250:  # Leave buffer
+        # Truncate keyword more aggressively
+        max_keyword_len = 250 - len(base_dir) - len(safe_country) - len("_jobs.xlsx") - 2
+        if max_keyword_len > 5:
+            safe_keyword = safe_keyword[:max_keyword_len].strip('_')
+            filename = f"{safe_country}_{safe_keyword}_jobs.xlsx"
+            full_path = os.path.join(base_dir, filename)
+    
+    return full_path
+
 DEFAULT_CHROMEDRIVER_PATH = r"C:\selenium\chromedriver.exe"
 DEFAULT_CHROME_PROFILE_PATH = validate_and_get_profile_path()
 DEFAULT_CHROME_BINARY_LOCATION = r"C:\Program Files\Google\Chrome Beta\Application\chrome.exe"
-DEFAULT_OUTPUT_FILE_PATH = r"C:\Users\potre\OneDrive\LinkedIn_Automation\companies_usa_remote.xlsx"
+# Default will be generated dynamically based on country/keyword
+DEFAULT_OUTPUT_FILE_PATH = ""
 DEFAULT_SEARCH_COUNTRY = "United States"
 DEFAULT_KEYWORD = "remote job, planning"
 
@@ -856,21 +887,27 @@ def parse_current_page(driver, wait, start_time, config):
                 skills_passes = True
                 
                 # Check location requirements (remote/visa)
-                if config.get("require_remote", True) or config.get("require_visa", True):
+                require_remote = config.get("require_remote", False)
+                require_visa = config.get("require_visa", False)
+                
+                if require_remote or require_visa:
                     if config.get("location_logic", "OR") == "OR":
                         # At least one location option must be available if enabled
                         location_options = []
-                        if config.get("require_remote", True):
+                        if require_remote:
                             location_options.append(remote_found)
-                        if config.get("require_visa", True):
+                        if require_visa:
                             location_options.append(visa_or_relocation)
                         location_passes = any(location_options) if location_options else True
                     else:  # AND logic
                         location_passes = True
-                        if config.get("require_remote", True) and not remote_found:
+                        if require_remote and not remote_found:
                             location_passes = False
-                        if config.get("require_visa", True) and not visa_or_relocation:
+                        if require_visa and not visa_or_relocation:
                             location_passes = False
+                else:
+                    # If both checkboxes are unticked, show all jobs (no location filtering)
+                    location_passes = True
                 
                 # Check skills requirement
                 if config.get("require_skills", True):
@@ -887,17 +924,17 @@ def parse_current_page(driver, wait, start_time, config):
                         filter_details.append("blocked: remote prohibited")
                     elif config.get("location_logic", "OR") == "OR":
                         missing_location = []
-                        if config.get("require_remote", True) and not remote_found:
+                        if require_remote and not remote_found:
                             missing_location.append("remote")
-                        if config.get("require_visa", True) and not visa_or_relocation:
+                        if require_visa and not visa_or_relocation:
                             missing_location.append("visa")
                         if missing_location:
                             filter_details.append(f"missing location: needs {' OR '.join(missing_location)}")
                     else:  # AND logic
                         missing_and = []
-                        if config.get("require_remote", True) and not remote_found:
+                        if require_remote and not remote_found:
                             missing_and.append("remote")
-                        if config.get("require_visa", True) and not visa_or_relocation:
+                        if require_visa and not visa_or_relocation:
                             missing_and.append("visa")
                         if missing_and:
                             filter_details.append(f"missing location: needs {' AND '.join(missing_and)}")
@@ -960,7 +997,7 @@ def parse_current_page(driver, wait, start_time, config):
                     "Search Country": config.get("search_country", ""),
                     "Job Date": date_text or "",
                     "transformed publish date from description": transformed_publish_date or "",
-                    "Filter Config": f"Remote:{config.get('require_remote',True)}, Visa:{config.get('require_visa',True)}, Logic:{config.get('location_logic','OR')}, Skills:{config.get('require_skills',True)}, Block:{config.get('block_remote_prohibited',False)}"
+                    "Filter Config": f"Remote:{require_remote}, Visa:{require_visa}, Logic:{config.get('location_logic','OR')}, Skills:{config.get('require_skills',False)}, Block:{config.get('block_remote_prohibited',False)}"
                 })
 
                 matched_keywords = []
@@ -1262,7 +1299,9 @@ def create_gui():
 
     search_country_var = tk.StringVar(value=DEFAULT_SEARCH_COUNTRY)
     keyword_var = tk.StringVar(value=DEFAULT_KEYWORD)
-    output_file_var = tk.StringVar(value=DEFAULT_OUTPUT_FILE_PATH)
+    # Generate default output filename from country and keyword
+    default_output_path = generate_output_filename(DEFAULT_SEARCH_COUNTRY, DEFAULT_KEYWORD)
+    output_file_var = tk.StringVar(value=default_output_path)
     telegram_bot_token_var = tk.StringVar(value=DEFAULT_TELEGRAM_BOT_TOKEN)
     telegram_chat_id_var = tk.StringVar(value=DEFAULT_TELEGRAM_CHAT_ID)
     chromedriver_path_var = tk.StringVar(value=DEFAULT_CHROMEDRIVER_PATH)
@@ -1281,6 +1320,41 @@ def create_gui():
 
     google_sheets_url_var = tk.StringVar(value="https://docs.google.com/spreadsheets/d/173Zb-CkHxamDlQ3q7aFD-1Ay3nk6W7hrEq2aD6y4VJ4/edit?usp=sharing")
     google_sheets_credentials_var = tk.StringVar(value="C:/Users/potre/OneDrive/LinkedIn_Automation/google_sheets_credentials.json")
+    
+    # Auto-filename generation control
+    auto_filename_var = tk.BooleanVar(value=True)
+    filename_preview_var = tk.StringVar(value="")
+    
+    def update_output_filename(*args):
+        """Update output filename when country or keyword changes"""
+        if not auto_filename_var.get():
+            return  # Don't auto-update if manual mode is selected
+            
+        try:
+            new_filename = generate_output_filename(search_country_var.get(), keyword_var.get())
+            output_file_var.set(new_filename)
+            # Update preview showing just the filename
+            preview = f"→ {os.path.basename(new_filename)}"
+            filename_preview_var.set(preview)
+        except Exception as e:
+            logging.warning(f"Error updating filename: {e}")
+            filename_preview_var.set("→ Error generating filename")
+    
+    def toggle_auto_filename():
+        """Toggle between auto and manual filename modes"""
+        if auto_filename_var.get():
+            # Switching to auto mode - generate filename
+            update_output_filename()
+        else:
+            # Switching to manual mode - clear preview
+            filename_preview_var.set("Manual filename mode")
+    
+    # Add trace to update filename when country or keyword changes
+    search_country_var.trace('w', update_output_filename)
+    keyword_var.trace('w', update_output_filename)
+    
+    # Initialize preview on startup
+    update_output_filename()
 
     tk.Label(root, text="Search Country:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
     tk.Entry(root, textvariable=search_country_var, width=40).grid(row=0, column=1, padx=5, pady=5)
@@ -1291,6 +1365,14 @@ def create_gui():
     tk.Button(root, text="Browse", command=lambda: output_file_var.set(
         filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")])
     )).grid(row=2, column=2, padx=5, pady=5)
+    
+    # Auto-filename checkbox and preview
+    tk.Checkbutton(root, text="Auto-generate filename", 
+                   variable=auto_filename_var,
+                   command=toggle_auto_filename).grid(row=2, column=3, padx=5, pady=5, sticky="w")
+    filename_preview_label = tk.Label(root, textvariable=filename_preview_var, 
+                                     fg="gray", font=("Arial", 8))
+    filename_preview_label.grid(row=2, column=1, sticky="w", pady=(25,0))
     tk.Label(root, text="Telegram Bot Token:").grid(row=3, column=0, sticky="e", padx=5, pady=5)
     tk.Entry(root, textvariable=telegram_bot_token_var, width=40).grid(row=3, column=1, padx=5, pady=5)
     tk.Label(root, text="Telegram Chat ID:").grid(row=4, column=0, sticky="e", padx=5, pady=5)
@@ -1328,8 +1410,8 @@ def create_gui():
     location_frame = tk.Frame(root)
     location_frame.grid(row=11, column=1, sticky="w", padx=5, pady=2)
     
-    tk.Checkbutton(location_frame, text="Accept Remote Jobs", variable=require_remote_var).grid(row=0, column=0, sticky="w")
-    tk.Checkbutton(location_frame, text="Accept Visa Sponsorship Jobs", variable=require_visa_var).grid(row=0, column=1, sticky="w", padx=(20,0))
+    tk.Checkbutton(location_frame, text="Match Remote Jobs", variable=require_remote_var).grid(row=0, column=0, sticky="w")
+    tk.Checkbutton(location_frame, text="Match Visa Sponsorship Jobs", variable=require_visa_var).grid(row=0, column=1, sticky="w", padx=(20,0))
     
     tk.Label(location_frame, text="Logic:").grid(row=0, column=2, padx=(20,5), sticky="e")
     location_logic_combo = tk.OptionMenu(location_frame, location_logic_var, "OR", "AND")

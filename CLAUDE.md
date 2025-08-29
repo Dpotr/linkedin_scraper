@@ -36,6 +36,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This improvement makes statistics **meaningful and actionable** for job search tracking.
 
+## ✨ NEW FEATURES v2.7 - Smart GUI Improvements (Aug 29, 2025)
+
+**USER-FRIENDLY ENHANCEMENTS**: Three major GUI improvements based on user feedback for better usability and clarity!
+
+### Features Implemented
+
+#### 1. **Auto-Generated Output Filenames** 🗂️
+- **Dynamic Generation**: Excel output filename automatically created from Country + Keyword inputs
+- **Smart Format**: `{country}_{keyword}_jobs.xlsx` (e.g., `united_states_remote_job_planning_jobs.xlsx`)
+- **Intelligent Cleaning**: Removes special characters, handles spaces, prevents long filenames
+- **Real-time Updates**: Filename changes as you type in Country/Keyword fields
+- **Manual Override**: Toggle checkbox allows switching between auto and manual filename modes
+- **Live Preview**: Shows exactly what filename will be generated
+
+#### 2. **Semantic Label Improvements** 📝
+- **"Accept" → "Match"**: Changed misleading checkbox labels for better accuracy
+  - "Accept Remote Jobs" → "Match Remote Jobs"
+  - "Accept Visa Sponsorship Jobs" → "Match Visa Sponsorship Jobs"
+- **Clearer Intent**: Better reflects that these are matching criteria, not acceptance decisions
+
+#### 3. **Filter Logic Clarification** 🎯
+- **Clear Behavior**: When both location checkboxes are unticked → shows ALL jobs (no location filtering)
+- **Consistent Logic**: Fixed inconsistent default values and improved variable handling
+- **Enhanced Logging**: Better filter debugging with consistent variable names
+- **User Understanding**: Clear documentation of what happens when filters are disabled
+
+### GUI Enhancements
+- **Auto-generate filename** checkbox (enabled by default)
+- **Filename preview** showing generated name in real-time
+- **Manual override capability** when auto-generation is disabled
+- **Robust error handling** for edge cases and path length limits
+
+### Technical Improvements
+- **Path Length Validation**: Prevents Windows 260-character path limit issues
+- **Smart Truncation**: Preserves meaningful names even with very long inputs
+- **Error Recovery**: Graceful fallbacks for invalid inputs
+- **Agent-Validated**: Code-frustration-assessor reviewed for UX best practices
+
+### Business Value
+- **Reduced Manual Work**: No more thinking about output filenames
+- **Predictable Behavior**: Users understand exactly what filter settings do
+- **Professional Output**: Consistent, meaningful file naming convention
+- **User Control**: Can override auto-generation when needed
+
+This update eliminates common GUI frustration patterns while maintaining full backward compatibility.
+
 ## 🚀 MAJOR FIX v2.5 - LinkedIn Lazy Loading Solution (Aug 28, 2025)
 
 **CRITICAL BUG RESOLVED**: LinkedIn Job Scraper now captures **95%+ of jobs** vs 52% previously!

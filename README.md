@@ -1,4 +1,4 @@
-# LinkedIn Job Automation System v2.6
+# LinkedIn Job Automation System v2.7
 
 **LinkedIn Job Automation** — мощная система для автоматизированного поиска, анализа и отслеживания вакансий LinkedIn с модульной системой фильтрации, расширенным словарем и полной прозрачностью процесса отбора.
 
@@ -29,6 +29,39 @@
 ```
 
 This improvement makes statistics **meaningful and actionable** for job search tracking.
+
+---
+
+## ✨ NEW FEATURES v2.7 - Smart GUI Improvements (Aug 29, 2025)
+
+**USER-FRIENDLY ENHANCEMENTS**: Three major GUI improvements based on user feedback!
+
+### 🔥 Features Implemented
+
+#### 1. **Auto-Generated Output Filenames** 🗂️
+- **Dynamic Generation**: Excel filename auto-created from Country + Keyword
+- **Smart Format**: `{country}_{keyword}_jobs.xlsx`
+- **Real-time Updates**: Changes as you type
+- **Manual Override**: Toggle auto-generation on/off
+- **Live Preview**: Shows generated filename
+
+#### 2. **Improved Checkbox Labels** 📝
+- **"Accept" → "Match"**: Better semantic accuracy
+- **Clearer Intent**: These are matching criteria, not acceptance decisions
+
+#### 3. **Filter Logic Clarification** 🎯
+- **Clear Behavior**: Both unticked = show ALL jobs (no location filtering)
+- **Consistent Logic**: Fixed default values and variable handling
+- **Enhanced Debugging**: Better logging for troubleshooting
+
+### 🎯 GUI Enhancements
+- Auto-generate filename checkbox (default: enabled)
+- Real-time filename preview
+- Manual override capability
+- Path length validation (Windows compatibility)
+- Robust error handling
+
+**Agent-Validated**: Code-frustration-assessor reviewed for UX best practices.
 
 ---
 
