@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.6 (2025-08-29) - Cycle Statistics Clarification 📊
+
+### CRITICAL UX IMPROVEMENT: Crystal Clear Statistics
+
+**🔥 Problem Solved:**
+- Previous statistics were misleading: "New matches this cycle: 45" included duplicates from previous cycles
+- "Total matches since start: 282" was confusing because it counted same jobs multiple times across cycles
+- Users couldn't distinguish between truly new job discoveries vs re-encounters of previously found jobs
+- **Original Issue**: Statistics created confusion about actual progress and discovery rate
+
+**⚡ Solution Implemented:**
+- **Enhanced Statistics Display**: Clear breakdown showing new discoveries vs duplicates in each cycle
+- **Unique Job Tracking**: Added `unique_jobs_discovered` global counter for lifetime discoveries
+- **State Validation**: Automatic consistency checks with `validate_cycle_state()` function
+- **Normalized Job Keys**: Case-insensitive matching with `.lower().strip()` prevents false duplicates
+- **Robust Error Handling**: Validation warnings in logs if counters become misaligned
+
+**📊 New Statistics Format:**
+```
+📊 Statistics:
+• Jobs scanned: 820
+• Matches found this cycle: 45 (15 new, 30 duplicates)
+• Unique jobs discovered to date: 142
+• Total match occurrences: 282
+```
+
+**🛠️ Technical Implementation:**
+- Added `unique_jobs_discovered` global variable with proper initialization and reset logic
+- Enhanced `generate_cycle_summary_message()` with duplicate calculation and validation
+- Improved job uniqueness detection with normalized company/position keys
+- State validation functions prevent counter inconsistencies
+- Agent-validated implementation ensures reliability and maintainability
+
+**🎯 Business Impact:**
+- **Actionable Metrics**: Users know exactly how many new opportunities were discovered
+- **Progress Tracking**: Clear cumulative unique job discoveries over time  
+- **Duplicate Awareness**: Understand re-encounter patterns across cycles
+- **Meaningful Analytics**: Statistics now provide genuine business value for job search tracking
+- **User Confidence**: No more confusion about whether progress is being made
+
+---
+
 ## v2.5 (2025-08-28) - LinkedIn Lazy Loading Solution 🚀
 
 ### CRITICAL BUG FIX: LinkedIn Job Capture Rate

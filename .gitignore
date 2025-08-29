@@ -7,6 +7,7 @@ google_sheets_credentials.json
 *.xlsx
 *.csv
 *.log
+logs/
 
 # Development files
 .vscode/

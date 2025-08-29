@@ -4,6 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **🤖 Agent-Validated Infrastructure**: All deployment and control mechanisms have been validated by the code-frustration-assessor to prevent common development frustration patterns.
 
+## 🚀 MAJOR FIX v2.6 - Cycle Statistics Clarification (Aug 29, 2025)
+
+**CRITICAL UX IMPROVEMENT**: Cycle statistics now provide **crystal clear reporting** - no more confusion about duplicates vs new jobs!
+
+### Problem Solved
+- Previous statistics were misleading: "New matches this cycle: 45" included duplicates from previous cycles
+- "Total matches since start: 282" was confusing because it counted same jobs multiple times
+- Users couldn't distinguish between truly new job discoveries vs re-encounters
+
+### Solution Implemented
+- **Enhanced Statistics Display**: Clear breakdown showing new vs duplicate matches
+- **Unique Job Tracking**: Added `unique_jobs_discovered` counter for lifetime discoveries
+- **State Validation**: Automatic consistency checks prevent counter misalignment
+- **Normalized Job Keys**: Case-insensitive matching prevents false duplicates
+
+### New Statistics Format
+```
+📊 Statistics:
+• Jobs scanned: 820
+• Matches found this cycle: 45 (15 new, 30 duplicates)
+• Unique jobs discovered to date: 142
+• Total match occurrences: 282
+```
+
+### Business Value
+- **Actionable Metrics**: Know exactly how many new opportunities discovered
+- **Progress Tracking**: See cumulative unique job discoveries over time
+- **Duplicate Awareness**: Understand re-encounter patterns across cycles
+- **Validated Quality**: Agent-reviewed for reliability and maintainability
+
+This improvement makes statistics **meaningful and actionable** for job search tracking.
+
 ## 🚀 MAJOR FIX v2.5 - LinkedIn Lazy Loading Solution (Aug 28, 2025)
 
 **CRITICAL BUG RESOLVED**: LinkedIn Job Scraper now captures **95%+ of jobs** vs 52% previously!

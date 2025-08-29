@@ -7,54 +7,58 @@ from io import BytesIO
 from wordcloud import WordCloud
 import itertools
 from collections import Counter
+from config import Config
 
 st.set_page_config(page_title="LinkedIn Job Scraper", layout="centered")
 st.title("LinkedIn Job Scraper (Streamlit)")
+# streamlit run c:\Users\potre\OneDrive\LinkedIn_Automation\streamlit_linkedin_scraper.py [ARGUMENTS]
+# --- Configuration from environment variables ---
 
-# --- Настройки Google Sheets ---
-GOOGLE_SHEETS_URL = "https://docs.google.com/spreadsheets/d/173Zb-CkHxamDlQ3q7aFD-1Ay3nk6W7hrEq2aD6y4VJ4/edit?usp=sharing"
-GOOGLE_SHEETS_CREDENTIALS = "C:/Users/potre/OneDrive/LinkedIn_Automation/google_sheets_credentials.json"
-
-def read_google_sheet(sheet_url=GOOGLE_SHEETS_URL, credentials=GOOGLE_SHEETS_CREDENTIALS):
-    gc = gspread.service_account(filename=credentials)
-    sh = gc.open_by_url(sheet_url)
-    worksheet = sh.sheet1
-    data = worksheet.get_all_records()
-    return pd.DataFrame(data)
+def read_google_sheet(sheet_url=None, credentials=None):
+    """Read Google Sheet with improved error handling."""
+    # Use environment variables or fall back to secrets for compatibility
+    if not sheet_url:
+        sheet_url = Config.SHEET_URL or st.secrets.get("sheet_url", None)
+    if not credentials:
+        credentials = Config.CREDS_PATH or st.secrets.get("sheets_creds_path", None)
+    
+    if not sheet_url or not credentials:
+        st.error("📋 Configuration missing")
+        st.info("Please set LINKEDIN_SHEET_URL and LINKEDIN_CREDS_PATH in .env file")
+        return pd.DataFrame()  # Return empty dataframe instead of crashing
+    
+    try:
+        gc = gspread.service_account(filename=credentials)
+        sh = gc.open_by_url(sheet_url)
+        worksheet = sh.sheet1
+        data = worksheet.get_all_records()
+        return pd.DataFrame(data)
+    except FileNotFoundError:
+        st.error("📁 Credentials file not found")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"❌ Failed to load data: {str(e)[:100]}")
+        return pd.DataFrame()
 
 # --- UI настройки (спойлер) ---
 with st.expander("Настройки (только для справки)", expanded=False):
+    config = Config.get_all()
     st.markdown("""
     **Параметры текущей конфигурации:**
     - **Google Sheets URL:** `{}`
     - **Google Sheets Credentials:** `{}`
-    - **Файл Excel:** `{}`
-    - **Telegram Chat ID:** `{}`
-    - **Telegram Bot Token:** `{}`
-    - **ChromeDriver Path:** `{}`
-    - **Chrome Profile Path:** `{}`
-    - **Chrome Binary Location:** `{}`
-    - **Ключевые слова (Visa/Relocation):** `{}`
-    - **Ключевые слова (Anaplan):** `{}`
-    - **Ключевые слова (SAP):** `{}`
-    - **Ключевые слова (Planning):** `{}`
-    - **No Relocation:** `{}`
-    - **Remote:** `{}`
+    - **Output File:** `{}`
+    - **Telegram Configured:** `{}`
+    - **Chrome Configured:** `{}`
+    
+    Configuration is loaded from environment variables.
+    Create .env file based on .env.example to customize.
     """.format(
-        GOOGLE_SHEETS_URL,
-        GOOGLE_SHEETS_CREDENTIALS,
-        "C:/Users/potre/OneDrive/LinkedIn_Automation/companies_usa_remote.xlsx",
-        "[скрыто]",
-        "[скрыто]",
-        "C:/selenium/chromedriver.exe",
-        "C:/Users/potre/SeleniumProfileNew",
-        "C:/Program Files/Google/Chrome Beta/Application/chrome.exe",
-        "...",
-        "...",
-        "...",
-        "...",
-        "...",
-        "..."
+        config.get('sheet_url') or "[Not configured]",
+        config.get('creds_path') or "[Not configured]",
+        config.get('output_file_path') or "[Not configured]",
+        "Yes" if config.get('telegram_bot_token') else "No",
+        "Yes" if config.get('chromedriver_path') else "No"
     ))
 
 # --- Основная таблица ---
@@ -151,10 +155,12 @@ try:
     st.subheader("Search Funnel (All Stages)")
     funnel_counts = {}
     try:
-        import gspread
-        import matplotlib.pyplot as plt
-        gc = gspread.service_account(filename=GOOGLE_SHEETS_CREDENTIALS)
-        sh = gc.open_by_url(GOOGLE_SHEETS_URL)
+        creds_path = Config.CREDS_PATH or st.secrets.get("sheets_creds_path", None)
+        sheet_url = Config.SHEET_URL or st.secrets.get("sheet_url", None)
+        if not creds_path or not sheet_url:
+            raise ValueError("Configuration missing")
+        gc = gspread.service_account(filename=creds_path)
+        sh = gc.open_by_url(sheet_url)
         ws = sh.sheet1
         log_df = pd.DataFrame(ws.get_all_records())
         # === ФИКС: приведение типов для всех потенциально проблемных колонок ===
@@ -255,7 +261,6 @@ try:
     present_criteria = [col for col in criteria_columns if col in log_df.columns]
     if present_criteria:
         matches = {col: (log_df[col].astype(str).str.upper() == "TRUE").sum() for col in present_criteria}
-        import matplotlib.pyplot as plt
         fig_crit, ax_crit = plt.subplots(figsize=(8, 4))
         ax_crit.bar(matches.keys(), matches.values(), color=plt.cm.Paired.colors)
         ax_crit.set_ylabel("Количество совпадений")
@@ -276,14 +281,11 @@ try:
             matched_keywords_col = col
             break
     if matched_keywords_col:
-        import itertools
-        from collections import Counter
         all_keywords = list(itertools.chain.from_iterable(
             [s.strip() for s in str(keywords).split(",") if s.strip()] for keywords in log_df[matched_keywords_col].dropna()
         ))
         keyword_counts = Counter(all_keywords)
         if keyword_counts:
-            from wordcloud import WordCloud
             fig_kw, ax_kw = plt.subplots(figsize=(12, 5))
             wc_kw = WordCloud(width=900, height=400, background_color='white', colormap='plasma',
                               max_words=100, prefer_horizontal=1.0, collocations=False).generate_from_frequencies(keyword_counts)
@@ -318,7 +320,6 @@ try:
             # Сортировка дней недели и времени
             weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
             heatmap_time = heatmap_time.reindex(weekday_order)
-            import seaborn as sns
             fig_time, ax_time = plt.subplots(figsize=(16, 5))
             sns.heatmap(heatmap_time, cmap='YlOrRd', ax=ax_time)
             ax_time.set_title('Heatmap: Активность по дням и 15-минутным интервалам')
@@ -337,8 +338,6 @@ try:
     # --- Heatmap: топ навыков по компаниям (skills) ---
     st.subheader("Heatmap: топ навыков по компаниям (skills)")
     if 'Skills' in filtered_df.columns and 'Company' in filtered_df.columns:
-        from collections import Counter
-        import itertools
         all_skills = list(itertools.chain.from_iterable(
             [s.strip() for s in str(skills).split(",") if s.strip()] for skills in filtered_df['Skills'].dropna()
         ))
@@ -361,9 +360,6 @@ try:
     # --- Tag Cloud по навыкам (Skills) ---
     st.subheader("Облако навыков (Skills Tag Cloud)")
     if 'Skills' in filtered_df.columns:
-        import itertools
-        from collections import Counter
-        from wordcloud import WordCloud
         all_skills = list(itertools.chain.from_iterable(
             [s.strip() for s in str(skills).split(",") if s.strip()] for skills in filtered_df['Skills'].dropna()
         ))
@@ -401,5 +397,9 @@ try:
     else:
         st.info("Нет данных для построения графика по дням.")
 
+    # Show helpful message if data is empty
+    if df.empty:
+        st.warning("📭 No data found. Check your Google Sheets connection or ensure the sheet has data.")
 except Exception as e:
-    st.error(f"Ошибка при чтении Google Sheets: {e}")
+    st.error(f"❌ Error reading Google Sheets: {str(e)[:200]}")
+    st.info("💡 Tip: Check your .env file configuration and internet connection")

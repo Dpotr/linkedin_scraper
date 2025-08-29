@@ -2,9 +2,27 @@
   "permissions": {
     "allow": [
       "Bash(mkdir:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(python:*)",
+      "Bash(git log:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(streamlit run:*)",
+      "Read(c:\\Users\\potre\\Downloads/**)",
+      "Bash(powershell:*)",
+      "Read(c:\\Users\\potre\\Downloads/**)",
+      "Read(C:\\Users\\potre\\OneDrive\\python projects\\Tg bot expenses\\launch_scripts/**)",
+      "Read(C:\\Users\\potre\\OneDrive\\python projects\\Tg bot expenses\\launch_scripts/**)",
+      "Read(C:\\Users\\potre\\OneDrive\\python projects\\Tg bot expenses\\launch_scripts/**)",
+      "Read(C:\\Users\\potre\\OneDrive\\python projects\\Tg bot expenses\\launch_scripts/**)",
+      "Read(c:\\Users\\potre\\Downloads/**)",
+      "Bash(pip install:*)",
+      "Bash(del test_statistics.py)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\c\\Users\\potre\\OneDrive"
+    ]
   }
 }

@@ -81,7 +81,7 @@ REMOTE_REQUIREMENTS = [
     "remote", "work from home", "fully remote", "telecommute", "telecommuting", "remote work", "remote position"
 ]
 REMOTE_PROHIBITED = [
-    "onsite only", "remote not considered", "remote work not allowed", "no remote work", "remote not possible",
+    "onsite only", "remote not considered", "remote work not allowed", "no remote work", "remot3e not possible",
     "remote not available", "remote option not available", "remote is not possible", "remote work not considered",
     "must be onsite", "on-site only", "requires onsite", "remote applicants not considered", "remote work prohibited",
     "remote work is not permitted", "remote is not permitted", "remote not permitted", "remote not supported",
@@ -128,7 +128,10 @@ cycle_number = 1
 cycle_parsed_jobs = 0
 cycle_new_matches = 0
 cycle_matched_jobs = []  # List of {company, position} dicts for current cycle
+cycle_new_jobs_only = []  # NEW: List of truly new jobs (not seen in previous cycles)
 total_matches_all_time = 0
+unique_jobs_discovered = 0  # NEW: Count of unique jobs discovered across all cycles
+all_time_matched_jobs = set()  # NEW: Track all jobs ever matched across all cycles
 
 # ================================
 # Функция отправки сообщений в Telegram
@@ -174,23 +177,31 @@ def send_telegram_message(bot_token, chat_id, message, job_url=None, images=None
 # ================================
 def generate_cycle_summary_message():
     """Generate cycle summary message with matched jobs list"""
-    global cycle_number, cycle_parsed_jobs, cycle_new_matches, total_matches_all_time, cycle_matched_jobs
+    global cycle_number, cycle_parsed_jobs, cycle_new_matches, total_matches_all_time, cycle_new_jobs_only, unique_jobs_discovered
+    
+    # Validate state before generating summary
+    if not validate_cycle_state():
+        logging.error("Cycle state validation failed during summary generation")
+    
+    # Calculate duplicates found this cycle
+    duplicates_this_cycle = cycle_new_matches - len(cycle_new_jobs_only)
     
     # Build the main summary
     message_lines = [
         f"🔄 Cycle #{cycle_number} Completed",
         "",
         "📊 Statistics:",
-        f"• Parsed jobs: {cycle_parsed_jobs}",
-        f"• New matches this cycle: {cycle_new_matches}",
-        f"• Total matches since start: {total_matches_all_time}",
+        f"• Jobs scanned: {cycle_parsed_jobs}",
+        f"• Matches found this cycle: {cycle_new_matches} ({len(cycle_new_jobs_only)} new, {duplicates_this_cycle} duplicates)",
+        f"• Unique jobs discovered to date: {unique_jobs_discovered}",
+        f"• Total match occurrences: {total_matches_all_time}",
     ]
     
-    # Add matched jobs list if any
-    if cycle_matched_jobs:
-        message_lines.extend(["", "✅ Matched Jobs:"])
+    # Add NEW jobs list if any (only jobs not seen in previous cycles)
+    if cycle_new_jobs_only:
+        message_lines.extend(["", "✅ NEW Matched Jobs:"])
         # Limit to 20 jobs to avoid message being too long
-        display_jobs = cycle_matched_jobs[:20]
+        display_jobs = cycle_new_jobs_only[:20]
         for i, job in enumerate(display_jobs, 1):
             job_line = f"{i}. {job['company']} - {job['position']}"
             # Truncate very long lines
@@ -199,19 +210,47 @@ def generate_cycle_summary_message():
             message_lines.append(job_line)
         
         # Add note if more jobs exist
-        if len(cycle_matched_jobs) > 20:
-            message_lines.append(f"...and {len(cycle_matched_jobs) - 20} more")
+        if len(cycle_new_jobs_only) > 20:
+            message_lines.append(f"...and {len(cycle_new_jobs_only) - 20} more")
     else:
-        message_lines.extend(["", "No matches found in this cycle."])
+        message_lines.extend(["", "No new jobs found in this cycle (all matches were duplicates from previous cycles)."])
     
     return "\n".join(message_lines)
 
+def validate_cycle_state():
+    """Validate that cycle tracking variables are consistent"""
+    global unique_jobs_discovered, total_matches_all_time, all_time_matched_jobs, cycle_new_matches, cycle_new_jobs_only
+    
+    # Validate that unique jobs counter matches the set size
+    if unique_jobs_discovered != len(all_time_matched_jobs):
+        logging.error(f"State inconsistency: unique_jobs_discovered={unique_jobs_discovered}, but set size={len(all_time_matched_jobs)}")
+        return False
+    
+    # Validate that unique jobs count doesn't exceed total matches
+    if unique_jobs_discovered > total_matches_all_time:
+        logging.error(f"State inconsistency: unique_jobs_discovered={unique_jobs_discovered} > total_matches_all_time={total_matches_all_time}")
+        return False
+    
+    # Validate cycle consistency  
+    duplicates_this_cycle = cycle_new_matches - len(cycle_new_jobs_only)
+    if duplicates_this_cycle < 0:
+        logging.error(f"Cycle inconsistency: cycle_new_matches={cycle_new_matches} < cycle_new_jobs_only={len(cycle_new_jobs_only)}")
+        return False
+    
+    return True
+
 def reset_cycle_counters():
     """Reset cycle-specific counters for new cycle"""
-    global cycle_parsed_jobs, cycle_new_matches, cycle_matched_jobs, cycle_number
+    global cycle_parsed_jobs, cycle_new_matches, cycle_matched_jobs, cycle_new_jobs_only, cycle_number
+    
+    # Validate state before reset
+    if not validate_cycle_state():
+        logging.warning("Cycle state validation failed before reset - continuing anyway")
+    
     cycle_parsed_jobs = 0
     cycle_new_matches = 0
     cycle_matched_jobs = []
+    cycle_new_jobs_only = []  # Reset new jobs list for next cycle
     cycle_number += 1
     logging.info(f"Starting cycle #{cycle_number}")
 
@@ -226,9 +265,13 @@ def get_excel_summary(file_path, running_time_minutes):
         summary.append(f"Running time, min: {running_time_minutes:.2f}")
         summary.append(f"Checked companies: {sheet['S1'].value} {sheet['T1'].value}")
         return "\n".join(summary)
+    except FileNotFoundError:
+        # Excel file doesn't exist yet (first run) - this is normal
+        logging.info(f"Excel file not found (first run): {file_path}")
+        return f"Running time, min: {running_time_minutes:.2f}"
     except Exception as e:
         logging.error(f"Ошибка при извлечении данных из Excel: {e}")
-        return ""
+        return f"Running time, min: {running_time_minutes:.2f}"
 
 def save_results_to_file_with_calculations(results, output_file, elapsed_time):
     try:
@@ -948,36 +991,57 @@ def parse_current_page(driver, wait, start_time, config):
                     "transformed publish date from description": transformed_publish_date or ""
                 }
                 matching_jobs.append(current_result)
-                running_minutes = (time.perf_counter() - start_time) / 60
-                summary = get_excel_summary(config["output_file_path"], running_minutes)
-                message_text = (
-                    f"🔔 Найдена вакансия по ключевому слову <b>{config['keyword']}</b>\n"
-                    f"Компания: <b>{job_company_name}</b>\n"
-                    f"Вакансия: <b>{job_title}</b>\n\n"
-                    f"Matched key words: {', '.join(matched_keywords)}\n"
-                    f"Навыки: {', '.join(top_skills)}\n"
-                    f"Язык описания: {detected_language.upper()}\n\n"
-                    f"Ссылка на вакансию: <a href='{job_url}'>{job_url}</a>\n\n"
-                    f"Всего проверено вакансий: {total_vacancies_checked}\n"
-                    + summary
-                )
-                p_chart = create_p_chart(results)
-                bar_chart = create_bar_chart(results)
-                images = []
-                if p_chart:
-                    images.append(p_chart)
-                if bar_chart:
-                    images.append(bar_chart)
-                send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, job_url=job_url, images=images)
-                tg_sent = True
+                
                 # Track matched job for cycle summary
-                global cycle_new_matches, total_matches_all_time, cycle_matched_jobs
+                global cycle_new_matches, total_matches_all_time, cycle_matched_jobs, cycle_new_jobs_only, all_time_matched_jobs
+                job_entry = {"company": job_company_name, "position": job_title}
+                job_key = f"{job_company_name.lower().strip()}|{job_title.lower().strip()}"  # Create unique identifier (normalized)
+                
+                # Check if this is truly a NEW job (not seen in any previous cycle)
+                is_new_job = job_key not in all_time_matched_jobs
+                
+                # Always increment counters and track in cycle (for statistics)
                 cycle_new_matches += 1
                 total_matches_all_time += 1
-                # Add to matched jobs list if not already there (avoid duplicates)
-                job_entry = {"company": job_company_name, "position": job_title}
+                
+                # Add to matched jobs list if not already there (avoid duplicates within cycle)
                 if job_entry not in cycle_matched_jobs:
                     cycle_matched_jobs.append(job_entry)
+                
+                # Only send Telegram message for NEW jobs (not duplicates from previous cycles)
+                if is_new_job:
+                    global unique_jobs_discovered
+                    all_time_matched_jobs.add(job_key)  # Mark as seen
+                    cycle_new_jobs_only.append(job_entry)  # Add to truly new jobs list
+                    unique_jobs_discovered += 1  # Track unique jobs discovered
+                    
+                    # Send Telegram notification
+                    running_minutes = (time.perf_counter() - start_time) / 60
+                    summary = get_excel_summary(config["output_file_path"], running_minutes)
+                    message_text = (
+                        f"🔔 Найдена вакансия по ключевому слову <b>{config['keyword']}</b>\n"
+                        f"Компания: <b>{job_company_name}</b>\n"
+                        f"Вакансия: <b>{job_title}</b>\n\n"
+                        f"Matched key words: {', '.join(matched_keywords)}\n"
+                        f"Навыки: {', '.join(top_skills)}\n"
+                        f"Язык описания: {detected_language.upper()}\n\n"
+                        f"Ссылка на вакансию: <a href='{job_url}'>{job_url}</a>\n\n"
+                        f"Всего проверено вакансий: {total_vacancies_checked}\n"
+                        + summary
+                    )
+                    p_chart = create_p_chart(results)
+                    bar_chart = create_bar_chart(results)
+                    images = []
+                    if p_chart:
+                        images.append(p_chart)
+                    if bar_chart:
+                        images.append(bar_chart)
+                    send_telegram_message(config["telegram_bot_token"], config["telegram_chat_id"], message_text, job_url=job_url, images=images)
+                    tg_sent = True
+                    logging.info(f"NEW job: Telegram message sent for {job_company_name} - {job_title}")
+                else:
+                    logging.info(f"DUPLICATE job: Telegram message NOT sent for {job_company_name} - {job_title} (already seen in previous cycle)")
+                    tg_sent = False
                 # Update log with TG message sent
                 logs_buffer.append({
                     "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -996,7 +1060,7 @@ def parse_current_page(driver, wait, start_time, config):
                     "Job URL": job_url,
                     "Elapsed Time (s)": round(time.perf_counter() - start_time, 2),
                     "Skills": ", ".join(top_skills),
-                    "TG message sent": "yes",
+                    "TG message sent": "yes" if tg_sent else "no (duplicate)",
                     "Matched key words": ", ".join(matched_keywords),
                     "Search Keyword": config.get("keyword", ""),
                     "Search Country": config.get("search_country", ""),
@@ -1023,7 +1087,7 @@ def parse_current_page(driver, wait, start_time, config):
 # ================================
 def run_scraper(config):
     global results, total_vacancies_checked
-    global cycle_number, cycle_parsed_jobs, cycle_new_matches, cycle_matched_jobs, total_matches_all_time
+    global cycle_number, cycle_parsed_jobs, cycle_new_matches, cycle_matched_jobs, cycle_new_jobs_only, total_matches_all_time, unique_jobs_discovered, all_time_matched_jobs
     results = []
     total_vacancies_checked = 0
     # Initialize cycle tracking variables
@@ -1031,7 +1095,10 @@ def run_scraper(config):
     cycle_parsed_jobs = 0
     cycle_new_matches = 0
     cycle_matched_jobs = []
+    cycle_new_jobs_only = []
     total_matches_all_time = 0
+    unique_jobs_discovered = 0
+    all_time_matched_jobs = set()
     start_time = time.perf_counter()
     repetitive_parsing = config.get("repetitive_parsing", False)
     logging.info(f"Starting cycle #{cycle_number}")

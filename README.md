@@ -1,6 +1,34 @@
-# LinkedIn Job Automation System v2.5
+# LinkedIn Job Automation System v2.6
 
 **LinkedIn Job Automation** — мощная система для автоматизированного поиска, анализа и отслеживания вакансий LinkedIn с модульной системой фильтрации, расширенным словарем и полной прозрачностью процесса отбора.
+
+---
+
+## 🚀 MAJOR FIX v2.6 - Cycle Statistics Clarification (Aug 29, 2025)
+
+**CRITICAL UX IMPROVEMENT**: Cycle statistics now provide **crystal clear reporting** - no more confusion about duplicates vs new jobs!
+
+### 🔥 Problem Solved
+- Previous statistics were misleading: "New matches this cycle: 45" included duplicates from previous cycles
+- "Total matches since start: 282" was confusing because it counted same jobs multiple times
+- Users couldn't distinguish between truly new job discoveries vs re-encounters
+
+### ⚡ Solution Implemented  
+- **Enhanced Statistics Display**: Clear breakdown showing new vs duplicate matches
+- **Unique Job Tracking**: Added `unique_jobs_discovered` counter for lifetime discoveries
+- **State Validation**: Automatic consistency checks prevent counter misalignment
+- **Normalized Job Keys**: Case-insensitive matching prevents false duplicates
+
+### 📊 New Statistics Format
+```
+📊 Statistics:
+• Jobs scanned: 820
+• Matches found this cycle: 45 (15 new, 30 duplicates)
+• Unique jobs discovered to date: 142
+• Total match occurrences: 282
+```
+
+This improvement makes statistics **meaningful and actionable** for job search tracking.
 
 ---
 
