@@ -176,6 +176,8 @@ if 'selected_companies' not in st.session_state:
     st.session_state.selected_companies = []
 if 'selected_skills' not in st.session_state:
     st.session_state.selected_skills = []
+if 'selected_cycles' not in st.session_state:
+    st.session_state.selected_cycles = []
 if 'date_range' not in st.session_state:
     st.session_state.date_range = None
 if 'last_update' not in st.session_state:
@@ -207,6 +209,12 @@ def load_google_sheet_data():
         
         if "Timestamp" in df.columns:
             df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors='coerce')
+            
+        # Handle Cycle # column
+        if 'Cycle #' in df.columns:
+            df['Cycle #'] = pd.to_numeric(df['Cycle #'], errors='coerce').fillna(1).astype(int)
+        else:
+            df['Cycle #'] = 1
             
         bool_cols = [
             "Visa Sponsorship or Relocation", "Anaplan", "SAP APO", "Planning",
@@ -245,6 +253,10 @@ def create_export_link(df, filename, file_format="csv"):
 def apply_filters(df):
     """Apply all active filters to the dataframe."""
     filtered_df = df.copy()
+    
+    # Cycle filter
+    if st.session_state.selected_cycles and 'Cycle #' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['Cycle #'].isin(st.session_state.selected_cycles)]
     
     # Company filter
     if st.session_state.selected_companies:
@@ -1061,11 +1073,26 @@ def render_data_explorer_tab(df):
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
+            # Cycle selection
+            if 'Cycle #' in df.columns:
+                all_cycles = sorted(df['Cycle #'].dropna().unique())
+                if len(all_cycles) > 1:
+                    selected_cycles = st.multiselect(
+                        "🔄 Cycles",
+                        options=[int(c) for c in all_cycles],
+                        default=st.session_state.selected_cycles,
+                        key="cycle_filter",
+                        help="Filter by scraping cycle number"
+                    )
+                    st.session_state.selected_cycles = selected_cycles
+                else:
+                    st.info(f"Only one cycle available: #{int(all_cycles[0])}")
+            
             # Multi-select companies
             if 'Company' in df.columns:
                 all_companies = sorted(df['Company'].dropna().unique())
                 selected_companies = st.multiselect(
-                    "Companies",
+                    "🏢 Companies",
                     options=all_companies,
                     default=st.session_state.selected_companies,
                     key="company_filter"

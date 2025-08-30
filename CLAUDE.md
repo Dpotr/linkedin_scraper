@@ -36,6 +36,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This improvement makes statistics **meaningful and actionable** for job search tracking.
 
+## 🔄 NEW FEATURES v2.8 - Cycle Tracking & Enhanced Launch Scripts (Aug 30, 2025)
+
+**PRODUCTIVITY BOOST**: Complete cycle tracking system with professional launch infrastructure for streamlined operations!
+
+### Features Implemented
+
+#### 1. **Comprehensive Cycle Tracking** 🔄
+- **Universal Cycle Support**: All dashboards now track and display scraping cycle numbers
+- **Cycle Filtering**: Filter jobs by specific scraping cycles across all analytics interfaces
+- **Duplication Insights**: Clear visibility into new vs duplicate job discoveries per cycle
+- **Historical Analysis**: Track scraper performance and job discovery patterns over time
+- **Data Type Safety**: Robust handling of cycle numbers with proper validation and fallbacks
+
+#### 2. **Enhanced Dashboard Features** 📊
+- **job_tracker.py**: Added cycle selectbox filter + New/Duplicates KPI metric (format: "15/8")
+- **streamlit_linkedin_dashboard.py**: Integrated cycle multiselect in advanced filtering section
+- **streamlit_linkedin_scraper.py**: Added cycle selectbox with localized labels for legacy compatibility
+- **Consistent Integration**: Leverages existing session state and caching mechanisms
+- **Graceful Degradation**: All dashboards function normally when Cycle # column is missing
+
+#### 3. **Professional Launch Infrastructure** 🚀
+- **5 Launch Scripts**: Complete coverage for scraper + all 4 Streamlit dashboards
+- **Dynamic Path Resolution**: Fixed hard-coded paths using `%~dp0..` for portability
+- **Dependency Validation**: Automatic checks for Python, Streamlit, and required files
+- **Error Handling**: Clear user-friendly messages for missing dependencies or files
+- **Cross-Environment Support**: Works regardless of installation directory or user path
+
+### Launch Scripts Available
+```
+launch_scripts/
+├── run_scraper.bat              # Main LinkedIn job scraper
+├── run_fresh_dashboard.bat      # Fresh UI Analytics (RECOMMENDED)
+├── run_job_tracker.bat          # Job Tracker workflow dashboard
+├── run_linkedin_assistant.bat   # LinkedIn Assistant features
+├── run_legacy_analytics.bat     # Legacy analytics (deprecated)
+└── README.txt                   # Comprehensive usage guide
+```
+
+### Business Value
+- **Operational Efficiency**: Double-click launch eliminates command-line complexity
+- **Historical Intelligence**: Understand job discovery trends across scraping cycles
+- **Quality Assurance**: Professional error handling prevents user confusion
+- **Maintainability**: Portable scripts work across different user environments
+- **Progress Tracking**: Clear metrics on scraper effectiveness over time
+
+### Technical Improvements
+- **Agent-Validated**: Code-frustration-assessor reviewed for reliability patterns
+- **Production-Ready**: Comprehensive error handling and user guidance
+- **Documentation**: Complete README with troubleshooting and usage instructions
+- **Future-Proof**: Extensible architecture supports additional dashboard types
+
+This update transforms the LinkedIn automation suite into a **professional-grade tool** with enterprise-level launch infrastructure and comprehensive cycle analytics.
+
 ## ✨ NEW FEATURES v2.7 - Smart GUI Improvements (Aug 29, 2025)
 
 **USER-FRIENDLY ENHANCEMENTS**: Three major GUI improvements based on user feedback for better usability and clarity!

@@ -64,6 +64,12 @@ def load_jobs(sheet_url):
         df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
         df['Days_Ago'] = (datetime.now() - df['Timestamp']).dt.days
         
+        # Handle Cycle # column
+        if 'Cycle #' in df.columns:
+            df['Cycle #'] = pd.to_numeric(df['Cycle #'], errors='coerce').fillna(1).astype(int)
+        else:
+            df['Cycle #'] = 1
+        
         # Boolean columns
         bool_cols = [
             "Visa Sponsorship or Relocation", "Anaplan", "SAP APO", "Planning",
@@ -128,6 +134,28 @@ def main():
     # Sidebar filters
     st.sidebar.header("🔍 Filters")
     
+    # Cycle filter
+    if 'Cycle #' in df.columns:
+        available_cycles = sorted(df['Cycle #'].dropna().unique())
+        if len(available_cycles) > 1:
+            cycle_options = ['All Cycles'] + [f"Cycle {int(c)}" for c in available_cycles]
+            selected_cycle = st.sidebar.selectbox(
+                "🔄 Cycle Selection",
+                cycle_options,
+                index=0,  # Default to "All Cycles"
+                help="Filter jobs by scraping cycle number"
+            )
+            if selected_cycle != 'All Cycles':
+                cycle_num = int(selected_cycle.split(' ')[1])
+                df_filtered = df[df['Cycle #'] == cycle_num]
+            else:
+                df_filtered = df.copy()
+        else:
+            df_filtered = df.copy()
+            st.sidebar.info(f"Only one cycle found (#{available_cycles[0] if available_cycles else 'N/A'})")
+    else:
+        df_filtered = df.copy()
+    
     # Date range filter
     days_options = [7, 14, 30, 60, 90, 365]
     days_back = st.sidebar.selectbox(
@@ -136,7 +164,7 @@ def main():
         index=2,  # Default to 30 days
         format_func=lambda x: f"Last {x} days"
     )
-    df_filtered = df[df['Days_Ago'] <= days_back] if 'Days_Ago' in df.columns else df
+    df_filtered = df_filtered[df_filtered['Days_Ago'] <= days_back] if 'Days_Ago' in df_filtered.columns else df_filtered
     
     # Company filter (multi-select)
     if 'Company' in df.columns:
@@ -210,7 +238,7 @@ def main():
     
     # Key Performance Indicators
     st.markdown("---")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     # Calculate KPIs
     open_jobs = len(df_filtered[df_filtered['Application_Status'] == 'Not Applied'])
@@ -224,11 +252,20 @@ def main():
     interviews = len(df_filtered[df_filtered['Application_Status'].isin(['Interview', 'Offer'])])
     response_rate = (interviews / max(1, total_applied)) * 100
     
+    # Calculate duplication metrics
+    if 'TG message sent' in df_filtered.columns:
+        new_jobs = len(df_filtered[df_filtered['TG message sent'].astype(str).str.lower() == 'yes'])
+        duplicate_jobs = len(df_filtered[df_filtered['TG message sent'].astype(str).str.contains('duplicate', case=False, na=False)])
+    else:
+        new_jobs = 0
+        duplicate_jobs = 0
+    
     # Display KPIs
     col1.metric("🎯 Open Jobs", open_jobs, help="Jobs not yet applied to")
     col2.metric("📤 Applied", applied_jobs, help="Applications sent")
     col3.metric("⏰ Need Follow-up", pending_followup, help="Applied >7 days ago")
     col4.metric("📈 Response Rate", f"{response_rate:.1f}%", help="% getting interviews/offers")
+    col5.metric("🔄 New/Duplicates", f"{new_jobs}/{duplicate_jobs}", help="New jobs vs duplicates found")
     
     # Action buttons
     st.markdown("---")
@@ -260,10 +297,14 @@ def main():
     # Prepare display columns
     display_cols = ['Company', 'Vacancy Title', 'Priority', 'Days_Ago', 'Application_Status']
     
+    # Add Cycle # column if available
+    if 'Cycle #' in df_filtered.columns:
+        display_cols.insert(3, 'Cycle #')  # Insert after Priority
+    
     # Add relevant columns if they exist - including transparency columns
     optional_cols = [
         'Remote', 'Visa Sponsorship or Relocation', 'Anaplan', 'SAP APO', 'Planning',
-        'Skills', 'Matched key words', 'Stage', 'Filter Config'
+        'Skills', 'Matched key words', 'Stage', 'Filter Config', 'TG message sent'
     ]
     for col in optional_cols:
         if col in df_filtered.columns:
@@ -289,10 +330,12 @@ def main():
         column_config={
             "Priority": st.column_config.NumberColumn("Priority", help="Auto-calculated priority score"),
             "Days_Ago": st.column_config.NumberColumn("Days Ago", help="Days since job was posted"),
+            "Cycle #": st.column_config.NumberColumn("Cycle #", help="Scraping cycle number when job was found", width="small"),
             "Apply_Link": st.column_config.LinkColumn("Job Link", help="Click to open job posting"),
             "Matched key words": st.column_config.TextColumn("Matched Keywords", help="Specific keywords that triggered this job match", width="medium"),
             "Stage": st.column_config.TextColumn("Filter Result", help="Why this job passed or failed filters", width="medium"),
             "Filter Config": st.column_config.TextColumn("Filter Settings", help="Filter configuration used when processing this job", width="large"),
+            "TG message sent": st.column_config.TextColumn("TG Status", help="Whether Telegram notification was sent (yes/no/duplicate)", width="small"),
             "Remote": st.column_config.CheckboxColumn("🏠 Remote", help="Remote work available"),
             "Visa Sponsorship or Relocation": st.column_config.CheckboxColumn("🛂 Visa", help="Visa sponsorship or relocation assistance"),
             "Anaplan": st.column_config.CheckboxColumn("📊 Anaplan", help="Anaplan skills mentioned"),

@@ -72,6 +72,13 @@ try:
             df[col] = pd.to_numeric(df[col], errors='coerce')
     if "Timestamp" in df.columns:
         df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors='coerce')
+    
+    # Handle Cycle # column
+    if 'Cycle #' in df.columns:
+        df['Cycle #'] = pd.to_numeric(df['Cycle #'], errors='coerce').fillna(1).astype(int)
+    else:
+        df['Cycle #'] = 1
+        
     bool_cols = [
         "Visa Sponsorship or Relocation",
         "Anaplan",
@@ -95,8 +102,24 @@ try:
         for s in str(skills).split(",") if s.strip()
     ))
 
+    # Фильтр по циклам (если доступно несколько)
+    if 'Cycle #' in df.columns:
+        all_cycles = sorted(df['Cycle #'].dropna().unique())
+        if len(all_cycles) > 1:
+            cycle_filter = st.sidebar.selectbox(
+                "🔄 Фильтр по циклам",
+                options=["Все циклы"] + [f"Цикл #{int(c)}" for c in all_cycles],
+                index=0,
+                key='cycle_filter_select'
+            )
+        else:
+            st.sidebar.info(f"Доступен только один цикл: #{int(all_cycles[0])}")
+            cycle_filter = "Все циклы"
+    else:
+        cycle_filter = "Все циклы"
+    
     # Фильтр по компаниям (selectbox)
-    company_filter = st.sidebar.selectbox("Фильтр по компаниям", options=["Все компании"] + all_companies, index=0, key='company_filter_select')
+    company_filter = st.sidebar.selectbox("🏢 Фильтр по компаниям", options=["Все компании"] + all_companies, index=0, key='company_filter_select')
     if company_filter == "Все компании":
         selected_companies = all_companies
     else:
@@ -119,9 +142,19 @@ try:
             index=1
         )
 
-    filtered_df = df[
-        df['Company'].isin(selected_companies)
+    # Apply cycle filter first
+    if cycle_filter != "Все циклы" and 'Cycle #' in df.columns:
+        cycle_num = int(cycle_filter.split('#')[1])
+        filtered_df = df[df['Cycle #'] == cycle_num]
+    else:
+        filtered_df = df.copy()
+    
+    # Apply company filter
+    filtered_df = filtered_df[
+        filtered_df['Company'].isin(selected_companies)
     ]
+    
+    # Apply skills filter
     if selected_skills:
         filtered_df = filtered_df[filtered_df['Skills'].apply(lambda x: any(skill in str(x) for skill in selected_skills))]
 
